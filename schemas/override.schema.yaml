@@ -1,0 +1,86 @@
+type: object
+required:
+  - id
+  - action
+  - reason
+  - authorized_by
+  - timestamp
+
+properties:
+  id:
+    type: string
+    description: Unique override identifier
+    pattern: "^override-[0-9]{14}-[a-f0-9]{8}$"
+    example: "override-20250102153045-a1b2c3d4"
+
+  action:
+    type: string
+    description: The action being overridden
+    enum:
+      - git_push_main
+      - schema_change
+      - policy_change
+      - enforcement_bypass
+      - auth_schema_change
+      - container_modify
+      - credential_create
+
+  reason:
+    type: string
+    description: Human-readable justification for override
+    minLength: 10
+    maxLength: 500
+
+  authorized_by:
+    type: string
+    description: Must match system owner (Paul)
+    enum:
+      - Paul
+
+  timestamp:
+    type: string
+    format: date-time
+    description: ISO 8601 timestamp of override
+
+  # Optional fields
+  proposal_id:
+    type: string
+    description: Link to proposal if applicable
+
+  expires_at:
+    type: string
+    format: date-time
+    description: When override expires (null = no expiry)
+
+  scope:
+    type: string
+    description: Scope of override
+    enum:
+      - single_action
+      - session
+      - time_limited
+
+  metadata:
+    type: object
+    description: Additional context
+    properties:
+      commit_sha:
+        type: string
+      affected_files:
+        type: array
+        items:
+          type: string
+      previous_state:
+        type: string
+
+# Storage and immutability
+storage:
+  path: /vault/overrides/
+  immutable: true
+  retain_days: 3650
+
+# Validation rules
+validation:
+  authorized_by_must_match_owner: true
+  timestamp_must_be_recent: true
+  reason_must_be_substantive: true
