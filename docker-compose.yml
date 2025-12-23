@@ -3,7 +3,7 @@ services:
     build: ./services/ui
     container_name: origin-ui
     ports:
-      - "8000:8000"
+      - "8080:8000"
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - CODEX_URL=http://codex:8000
@@ -85,10 +85,15 @@ services:
     environment:
       - VAULT_MASTER_KEY=${JWT_SECRET}
       - VAULT_DIR=/vault
+      # Cursor API Integration
+      - CURSOR_API_KEY=${CURSOR_API_KEY:-}
+      - CURSOR_WORKSPACE_ID=${CURSOR_WORKSPACE_ID:-}
     volumes:
       - vault-data:/vault
       - sentinel-alerts:/vault/sentinel/alerts:rw
       - codex-audit:/vault/codex/audit:rw
+      # Cursor credentials storage
+      - cursor-credentials:/vault/cursor:rw
     restart: unless-stopped
 
   orchestrator:
@@ -199,45 +204,93 @@ services:
 
   # ==========================================================================
   # AUTO-CLAUDE: Autonomous Multi-Session AI Coding Agent
+  # Primary interface on port 8000
   # ==========================================================================
   auto-claude:
     build: ./services/auto-claude
     container_name: origin-auto-claude
     ports:
-      - "8009:8000"
+      - "8000:8000"
     environment:
-      # Claude API
+      # =======================================================================
+      # MODEL PROVIDER SELECTION
+      # Set LLM_PROVIDER to: claude | openai | openrouter
+      # =======================================================================
+      - LLM_PROVIDER=${LLM_PROVIDER:-claude}
+      
+      # Claude/Anthropic (default)
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-sonnet-4-20250514}
       - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
-      - AUTO_BUILD_MODEL=${AUTO_BUILD_MODEL:-claude-sonnet-4-20250514}
-      # Memory Layer (FalkorDB)
-      - GRAPHITI_ENABLED=true
-      - GRAPHITI_LLM_PROVIDER=anthropic
-      - GRAPHITI_EMBEDDER_PROVIDER=openai
+      
+      # OpenAI (GPT-4, GPT-4o, o1, o3)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # Origin OS Integration
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - OPENAI_ORG_ID=${OPENAI_ORG_ID:-}
+      
+      # OpenRouter (access to all models)
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-anthropic/claude-sonnet-4}
+      
+      # =======================================================================
+      # MEMORY LAYER (FalkorDB + Graphiti)
+      # =======================================================================
+      - GRAPHITI_ENABLED=true
+      - GRAPHITI_LLM_PROVIDER=${GRAPHITI_LLM_PROVIDER:-anthropic}
+      - GRAPHITI_EMBEDDER_PROVIDER=${GRAPHITI_EMBEDDER_PROVIDER:-openai}
+      - FALKORDB_URL=redis://falkordb:6379
+      
+      # =======================================================================
+      # ORIGIN OS INTEGRATION (All MCPs)
+      # =======================================================================
       - CODEX_URL=http://codex:8000
       - VAULT_URL=http://vault:8000
       - MEMORY_URL=http://memory:8000
       - MCP_HUB_URL=http://mcp-hub:8000
-      # Data directories
+      - MCP_REGISTRY_URL=http://mcp-registry:8000
+      - ORCHESTRATOR_URL=http://orchestrator:8000
+      - CAD_URL=http://cad:8000
+      
+      # =======================================================================
+      # CURSOR API INTEGRATION
+      # =======================================================================
+      - CURSOR_API_KEY=${CURSOR_API_KEY:-}
+      - CURSOR_WORKSPACE_ID=${CURSOR_WORKSPACE_ID:-}
+      - CURSOR_ENABLED=${CURSOR_ENABLED:-false}
+      
+      # =======================================================================
+      # PROJECT & WORKSPACE
+      # =======================================================================
       - AUTO_CLAUDE_DATA_DIR=/data/auto-claude
       - WORKTREE_DIR=/data/worktrees
       - SPECS_DIR=/data/specs
-      # GitHub for project repos
       - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - PROJECTS_DIR=/projects
+      
+      # =======================================================================
+      # ADDITIONAL API KEYS
+      # =======================================================================
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
+      - SEMRUSH_API_KEY=${SEMRUSH_API_KEY:-}
+      
     volumes:
       # Persistent data
       - auto-claude-data:/data/auto-claude
       - auto-claude-worktrees:/data/worktrees
       - auto-claude-specs:/data/specs
-      # Project access (bind mount to host projects)
+      # Project access
       - ${PROJECTS_DIR:-/Users/root1/projects}:/projects:rw
       # System state (read-only)
       - system-state:/system:ro
+      # Memory integration
+      - memory-data:/data/memory:ro
     depends_on:
       - codex
       - vault
+      - memory
+      - mcp-hub
+      - mcp-registry
       - falkordb
     restart: unless-stopped
 
@@ -249,6 +302,30 @@ services:
       - "6379:6379"
     volumes:
       - falkordb-data:/data
+    restart: unless-stopped
+
+  # ==========================================================================
+  # CURSOR MCP: Cursor IDE Integration
+  # ==========================================================================
+  cursor-mcp:
+    build: ./services/cursor-mcp
+    container_name: origin-cursor-mcp
+    ports:
+      - "8010:8000"
+    environment:
+      - CURSOR_API_KEY=${CURSOR_API_KEY}
+      - CURSOR_WORKSPACE_ID=${CURSOR_WORKSPACE_ID:-}
+      - VAULT_URL=http://vault:8000
+      - CODEX_URL=http://codex:8000
+      - MCP_HUB_URL=http://mcp-hub:8000
+      - AUTO_CLAUDE_URL=http://auto-claude:8000
+    volumes:
+      - cursor-data:/data/cursor
+      - cursor-credentials:/vault/cursor:ro
+    depends_on:
+      - vault
+      - codex
+      - auto-claude
     restart: unless-stopped
 
 volumes:
@@ -284,6 +361,11 @@ volumes:
     name: origin-auto-claude-specs
   falkordb-data:
     name: origin-falkordb-data
+  # Cursor volumes
+  cursor-data:
+    name: origin-cursor-data
+  cursor-credentials:
+    name: origin-cursor-credentials
 
 networks:
   default:

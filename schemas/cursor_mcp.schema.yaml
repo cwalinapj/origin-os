@@ -1,0 +1,143 @@
+type: object
+description: Cursor MCP tool definitions and configuration
+
+mcp:
+  name: cursor
+  version: "1.0.0"
+  description: Cursor IDE integration with file editing and code generation
+
+  capabilities:
+    - file_operations
+    - code_generation
+    - project_analysis
+    - git_operations
+    - origin_os_integration
+
+  tools:
+    # File Operations
+    - name: read_file
+      description: Read file contents
+      input:
+        path: string
+      output:
+        content: string
+
+    - name: write_file
+      description: Write content to file
+      input:
+        path: string
+        content: string
+        create: boolean
+      output:
+        success: boolean
+
+    - name: edit_file
+      description: Edit file by replacing text
+      input:
+        path: string
+        old_text: string
+        new_text: string
+      output:
+        success: boolean
+
+    - name: list_files
+      description: List files in directory
+      input:
+        directory: string
+        pattern: string
+      output:
+        files: array
+
+    - name: search
+      description: Search for text in files
+      input:
+        directory: string
+        query: string
+      output:
+        results: array
+
+    # Code Generation
+    - name: generate
+      description: Generate code using AI
+      input:
+        prompt: string
+        context_files: array
+        language: string
+        model: string  # claude | gpt-4 | openrouter
+      output:
+        code: string
+
+    # Git Operations
+    - name: git_status
+      description: Get git repository status
+      input:
+        path: string
+      output:
+        status: object
+
+    - name: git_commit
+      description: Commit changes to git
+      input:
+        path: string
+        message: string
+        files: array
+      output:
+        commit_sha: string
+
+    # Origin OS Integration
+    - name: codex_enforce
+      description: Check action against Codex governance
+      input:
+        action: string
+        params: object
+      output:
+        allowed: boolean
+        requires_override: boolean
+        reason: string
+
+    - name: vault_get
+      description: Get secret from Vault
+      input:
+        key: string
+      output:
+        value: string
+
+    - name: memory_recall
+      description: Recall from Origin OS Memory
+      input:
+        query: string
+      output:
+        results: array
+
+    - name: auto_claude_task
+      description: Send task to Auto-Claude
+      input:
+        task: string
+        project_path: string
+      output:
+        task_id: string
+        status: string
+
+  models:
+    supported:
+      - claude-sonnet-4-20250514
+      - claude-opus-4-20250514
+      - gpt-4o
+      - gpt-4-turbo
+      - o1
+      - o3
+      - openrouter/*
+    default: claude-sonnet-4-20250514
+    selection:
+      method: environment  # environment | config | runtime
+      env_var: LLM_PROVIDER
+
+  endpoints:
+    base_url: http://cursor-mcp:8000
+    health: /health
+    info: /info
+    tools: /mcp/tool
+
+  authentication:
+    type: jwt
+    source: codex
