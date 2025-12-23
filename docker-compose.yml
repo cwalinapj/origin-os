@@ -1,6 +1,72 @@
 services:
   # ==========================================================================
-  # GTM INTERCEPT — Real-Time Event Capture for LAM Routing
+  # DEVICE ROUTER — Device-Specific Container Routing
+  # ==========================================================================
+  device-router:
+    build: ./services/device-router
+    container_name: origin-device-router
+    ports:
+      - "8017:8000"
+    environment:
+      - GTM_INTERCEPT_URL=http://gtm-intercept:8000
+      - VERCEL_URL=http://vercel:8000
+    volumes:
+      - device-router-data:/data/device-router
+    depends_on:
+      - gtm-intercept
+      - vercel
+    restart: unless-stopped
+
+  # ==========================================================================
+  # LAM EXPERIMENT — A/B Testing with Tool Chain Learning
+  # ==========================================================================
+  lam-experiment:
+    build: ./services/lam-experiment
+    container_name: origin-lam-experiment
+    ports:
+      - "8018:8000"
+    environment:
+      - FIGMA_URL=http://figma:8000
+      - VERCEL_URL=http://vercel:8000
+      - DEVICE_ROUTER_URL=http://device-router:8000
+      - GTM_INTERCEPT_URL=http://gtm-intercept:8000
+      - WEB_SCRAPER_URL=http://web-scraper:8000
+      - IMAGE_COMPARE_URL=http://image-compare:8000
+      - TEMPLATE_GEN_URL=http://template-gen:8000
+    volumes:
+      - experiment-data:/data/experiments
+    depends_on:
+      - figma
+      - vercel
+      - device-router
+      - web-scraper
+      - image-compare
+    restart: unless-stopped
+
+  # ==========================================================================
+  # TEMPLATE GEN — Next.js Device-Specific Templates
+  # ==========================================================================
+  template-gen:
+    build: ./services/template-gen
+    container_name: origin-template-gen
+    ports:
+      - "8019:8000"
+    restart: unless-stopped
+
+  # ==========================================================================
+  # IMAGE COMPARE — Visual Accuracy Scoring
+  # ==========================================================================
+  image-compare:
+    build: ./services/image-compare
+    container_name: origin-image-compare
+    ports:
+      - "8020:8000"
+    volumes:
+      - image-compare-data:/data/image-compare
+    restart: unless-stopped
+
+  # ==========================================================================
+  # GTM INTERCEPT — Real-Time Event Capture
   # ==========================================================================
   gtm-intercept:
     build: ./services/gtm-intercept
@@ -18,7 +84,7 @@ services:
     restart: unless-stopped
 
   # ==========================================================================
-  # LAM ROUTER — Large Action Model (Raspberry Pi 5 + Hailo8)
+  # LAM ROUTER — Traffic Routing (Pi5 + Hailo8)
   # ==========================================================================
   lam-router:
     build: ./services/lam-router
@@ -34,7 +100,7 @@ services:
     restart: unless-stopped
 
   # ==========================================================================
-  # IMAGE GEN — AI Image Generation
+  # CONTENT GENERATION
   # ==========================================================================
   image-gen:
     build: ./services/image-gen
@@ -46,14 +112,10 @@ services:
       - STABILITY_API_KEY=${STABILITY_API_KEY:-}
       - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN:-}
       - FAL_API_KEY=${FAL_API_KEY:-}
-      - IMAGE_GEN_PROVIDER=${IMAGE_GEN_PROVIDER:-openai}
     volumes:
       - image-data:/data/images
     restart: unless-stopped
 
-  # ==========================================================================
-  # TEXT GEN — Lookalike Text Generation
-  # ==========================================================================
   text-gen:
     build: ./services/text-gen
     container_name: origin-text-gen
@@ -63,14 +125,10 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - TEXT_GEN_PROVIDER=${TEXT_GEN_PROVIDER:-openai}
     volumes:
       - text-data:/data/text
     restart: unless-stopped
 
-  # ==========================================================================
-  # WEB SCRAPER — Firecrawl Integration
-  # ==========================================================================
   web-scraper:
     build: ./services/web-scraper
     container_name: origin-web-scraper
@@ -83,7 +141,7 @@ services:
     restart: unless-stopped
 
   # ==========================================================================
-  # FIGMA — Design Integration
+  # INTEGRATIONS
   # ==========================================================================
   figma:
     build: ./services/figma-mcp
@@ -96,9 +154,6 @@ services:
       - figma-data:/data/figma
     restart: unless-stopped
 
-  # ==========================================================================
-  # VERCEL — Deployment Integration
-  # ==========================================================================
   vercel:
     build: ./services/vercel-mcp
     container_name: origin-vercel
@@ -112,7 +167,7 @@ services:
     restart: unless-stopped
 
   # ==========================================================================
-  # AUTO-CLAUDE — Primary AI Coding Agent
+  # AUTO-CLAUDE — Primary AI Agent
   # ==========================================================================
   auto-claude:
     build: ./services/auto-claude
@@ -136,6 +191,11 @@ services:
       - TEXT_GEN_URL=http://text-gen:8000
       - WEB_SCRAPER_URL=http://web-scraper:8000
       - GTM_INTERCEPT_URL=http://gtm-intercept:8000
+      - LAM_ROUTER_URL=http://lam-router:8000
+      - LAM_EXPERIMENT_URL=http://lam-experiment:8000
+      - DEVICE_ROUTER_URL=http://device-router:8000
+      - TEMPLATE_GEN_URL=http://template-gen:8000
+      - IMAGE_COMPARE_URL=http://image-compare:8000
       - GITHUB_TOKEN=${GITHUB_TOKEN}
     volumes:
       - auto-claude-data:/data/auto-claude
@@ -148,9 +208,8 @@ services:
       - memory
       - figma
       - vercel
-      - image-gen
-      - text-gen
-      - web-scraper
+      - lam-experiment
+      - device-router
       - falkordb
     restart: unless-stopped
 
@@ -167,10 +226,10 @@ services:
       - CODEX_URL=http://codex:8000
       - MCP_HUB_URL=http://mcp-hub:8000
       - GTM_INTERCEPT_URL=http://gtm-intercept:8000
+      - LAM_EXPERIMENT_URL=http://lam-experiment:8000
     depends_on:
       - codex
       - mcp-hub
-      - gtm-intercept
     restart: unless-stopped
 
   codex:
@@ -206,6 +265,8 @@ services:
       - WEB_SCRAPER_URL=http://web-scraper:8000
       - GTM_INTERCEPT_URL=http://gtm-intercept:8000
       - LAM_ROUTER_URL=http://lam-router:8000
+      - LAM_EXPERIMENT_URL=http://lam-experiment:8000
+      - DEVICE_ROUTER_URL=http://device-router:8000
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -261,8 +322,8 @@ services:
       - VAULT_URL=http://vault:8000
       - MEMORY_URL=http://memory:8000
       - AUTO_CLAUDE_URL=http://auto-claude:8000
-      - GTM_INTERCEPT_URL=http://gtm-intercept:8000
-      - LAM_ROUTER_URL=http://lam-router:8000
+      - LAM_EXPERIMENT_URL=http://lam-experiment:8000
+      - DEVICE_ROUTER_URL=http://device-router:8000
     volumes:
       - orchestrator-data:/data/orchestrator
     depends_on:
@@ -361,6 +422,14 @@ volumes:
     name: origin-lam-data
   lam-models:
     name: origin-lam-models
+  
+  # New: Device Routing + Experiments
+  device-router-data:
+    name: origin-device-router-data
+  experiment-data:
+    name: origin-experiment-data
+  image-compare-data:
+    name: origin-image-compare-data
 
 networks:
   default:
