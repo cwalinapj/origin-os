@@ -100,6 +100,27 @@ services:
       - cad
     restart: unless-stopped
 
+  backup:
+    build: ./services/backup
+    container_name: origin-backup
+    ports:
+      - "8006:8000"
+    environment:
+      - BACKUP_DIR=/backups
+      - BACKUP_RETENTION_DAYS=30
+      - BACKUP_SCHEDULE=daily
+      # Optional S3 backup
+      - S3_BACKUP_ENABLED=${S3_BACKUP_ENABLED:-false}
+      - S3_BACKUP_BUCKET=${S3_BACKUP_BUCKET:-}
+      - S3_BACKUP_PREFIX=origin-os-backups
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
+    volumes:
+      - backup-data:/backups
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
 volumes:
   mcp-data:
     name: origin-mcp-data
@@ -109,6 +130,8 @@ volumes:
     name: origin-vault-data
   orchestrator-data:
     name: origin-orchestrator-data
+  backup-data:
+    name: origin-backup-data
 
 networks:
   default:
