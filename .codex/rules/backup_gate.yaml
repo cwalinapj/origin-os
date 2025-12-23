@@ -1,0 +1,105 @@
+gate: backup_execution
+version: "1.0"
+description: |
+  Hard gate that prevents:
+  - Unretained backups
+  - Mutable backups  
+  - Malformed uploads
+  - Wrong bucket targets
+
+requirements:
+  - schema: backup.schema.yaml
+  - immutability.object_lock == true
+  - immutability.mode == COMPLIANCE
+  - retention_days >= 365
+
+checks:
+  pre_upload:
+    - name: verify_schema
+      description: Validate backup manifest against schema
+      action: validate_yaml
+      schema: backup.schema.yaml
+      
+    - name: verify_retention
+      description: Ensure retention period meets minimum
+      condition: retention_days >= 365
+      
+    - name: verify_target_bucket
+      description: Ensure backup targets approved bucket
+      allowed_buckets:
+        - origin-os-backups
+      forbidden_buckets:
+        - origin-os-backup  # Old bucket without Object Lock
+        
+    - name: verify_lock_mode
+      description: Ensure COMPLIANCE mode is set
+      condition: immutability.mode == "COMPLIANCE"
+
+  post_upload:
+    - name: verify_object_lock
+      description: Confirm Object Lock applied after upload
+      action: s3_head_object
+      check: ObjectLockMode == "COMPLIANCE"
+      
+    - name: verify_checksum
+      description: Re-download and verify SHA256
+      action: download_and_hash
+      compare: manifest.volumes[*].sha256
+      
+    - name: verify_manifest_written
+      description: Confirm manifest.json uploaded
+      action: s3_head_object
+      key: "backups/{timestamp}/manifest.json"
+      
+    - name: verify_retention_date
+      description: Confirm retention date is set correctly
+      action: s3_get_object_retention
+      check: RetainUntilDate >= now + 365 days
+
+violations:
+  missing_retention:
+    severity: P0
+    description: Backup uploaded without Object Lock retention
+    
+  mutable_backup:
+    severity: P0
+    description: Backup is mutable (GOVERNANCE mode or no lock)
+    
+  wrong_bucket:
+    severity: P1
+    description: Backup uploaded to non-approved bucket
+    
+  checksum_mismatch:
+    severity: P0
+    description: Downloaded file does not match manifest checksum
+    
+  schema_invalid:
+    severity: P1
+    description: Manifest does not conform to backup.schema.yaml
+    
+  insufficient_retention:
+    severity: P1
+    description: Retention period less than 365 days
+
+actions:
+  P0:
+    - abort_task
+    - alert_sentinel
+    - write_audit_log
+    - notify_human
+    - quarantine_object
+    
+  P1:
+    - block_publish
+    - require_human_review
+    - write_audit_log
+    
+  P2:
+    - log_warning
+    - continue_with_flag
+
+audit:
+  log_all_checks: true
+  log_destination: vault
+  retain_days: 3650
+  immutable: true

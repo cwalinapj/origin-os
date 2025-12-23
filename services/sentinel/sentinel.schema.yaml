@@ -1,0 +1,25 @@
+version: "1.0"
+sentinel:
+  service_id: string
+  started_at: timestamp
+  verification:
+    interval_seconds: integer
+    last_run: timestamp
+    next_run: timestamp
+  checks:
+    - bucket_object_lock
+    - object_retention
+    - manifest_schema
+    - checksum_integrity
+    - retention_period
+  thresholds:
+    min_retention_days: 365
+    required_lock_mode: COMPLIANCE
+  alerts:
+    codex_url: string
+    vault_url: string
+  report:
+    objects_checked: integer
+    manifests_verified: integer
+    violations: array
+    status: enum  # PASS | FAIL
