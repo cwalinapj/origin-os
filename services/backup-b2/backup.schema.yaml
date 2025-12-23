@@ -1,0 +1,97 @@
+schema: origin.backup.schema.v1
+type: object
+required:
+  - schema
+  - backup_id
+  - timestamp
+  - created_at
+  - storage
+  - immutability
+  - source
+  - volumes
+  - configs
+properties:
+  schema:
+    type: string
+    const: origin.backup.schema.v1
+  backup_id:
+    type: string
+    description: Globally unique backup identifier (UUID or timestamp-hash)
+  timestamp:
+    type: string
+    pattern: '^[0-9]{8}_[0-9]{6}$'
+    description: YYYYMMDD_HHMMSS
+  created_at:
+    type: string
+    format: date-time
+  storage:
+    type: object
+    required: [type, location]
+    properties:
+      type:
+        type: string
+        enum: [s3]
+      location:
+        type: string
+        description: S3 bucket + prefix
+  immutability:
+    type: object
+    required: [object_lock, mode, retention_days]
+    properties:
+      object_lock:
+        type: boolean
+        const: true
+      mode:
+        type: string
+        enum: [COMPLIANCE, GOVERNANCE]
+      retention_days:
+        type: integer
+        minimum: 1
+  source:
+    type: object
+    required: [container, host, runner]
+    properties:
+      container:
+        type: string
+      host:
+        type: string
+      runner:
+        type: string
+        enum: [arch-runner, sentinel, manual]
+  volumes:
+    type: array
+    items:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        size_bytes:
+          type: integer
+        sha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        missing:
+          type: boolean
+  configs:
+    type: array
+    items:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+        sha256:
+          type: string
+        missing:
+          type: boolean
+  verification:
+    type: object
+    properties:
+      verified:
+        type: boolean
+      verified_at:
+        type: string
+        format: date-time
+      verifier:
+        type: string

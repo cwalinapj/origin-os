@@ -2,19 +2,23 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies
+# Install dependencies including boto3 for S3
 RUN pip install --no-cache-dir \
     fastapi \
     uvicorn \
     cryptography \
-    pydantic
+    pydantic \
+    boto3
 
-COPY vault_service.py .
+# Copy both versions - S3 is primary
+COPY vault_service_s3.py vault_service.py ./
 
-RUN mkdir -p /vault
+# Create cache directory
+RUN mkdir -p /tmp/vault-cache
 
-ENV VAULT_DIR=/vault
+ENV CACHE_DIR=/tmp/vault-cache
 
 EXPOSE 8000
 
-CMD ["python", "vault_service.py"]
+# Use S3 version by default
+CMD ["python", "vault_service_s3.py"]

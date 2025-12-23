@@ -1,0 +1,27 @@
+version: "1.0"
+restore:
+  restore_id: string            # UUID
+  requested_by: string          # agent_id | human_id
+  requested_at: timestamp
+  source:
+    bucket: string              # backblaze bucket
+    object_key: string          # exact immutable object path
+    checksum: string            # sha256 of backup
+    retention_verified: true    # must be verified before restore
+  target:
+    environment: enum           # sandbox | staging | forensics
+    container: string           # target container name
+    restore_mode: enum          # read_only | clone | forensic
+  constraints:
+    overwrite_existing: false
+    production_restore: forbidden
+    baseline_mutation: forbidden
+  validation:
+    checksum_required: true
+    schema_validation: true
+    codex_approval: required
+    sentinel_approval: required
+  audit:
+    log_to_vault: true
+    immutable_record: true
+    retain_days: 3650

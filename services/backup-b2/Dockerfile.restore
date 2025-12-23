@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install boto3 for S3 API
+RUN pip install --no-cache-dir boto3 requests
+
+# Copy scripts and schemas
+COPY restore.py .
+COPY restore.schema.yaml .
+COPY backup.schema.yaml .
+
+# Create directories
+RUN mkdir -p /restore /audit
+
+# Restore runs with explicit arguments
+ENTRYPOINT ["python", "restore.py"]
