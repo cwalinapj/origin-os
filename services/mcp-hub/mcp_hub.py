@@ -197,6 +197,17 @@ MCP_SERVERS = {
         "description": "PostgreSQL queries and management",
         "tools": ["query", "execute", "list_tables", "describe_table", "list_databases"]
     },
+    # =========================================================================
+    # 🔧 CAD & 3D PRINTING
+    # =========================================================================
+    "cad": {
+        "name": "CAD / STL Generator",
+        "type": "http",
+        "url": os.getenv("CAD_URL", "http://cad:8000"),
+        "description": "Generate 3D printable STL files - primitives, custom meshes, OpenSCAD",
+        "tools": ["primitive", "custom_mesh", "openscad", "cadquery", "text_3d", "combine", "list_files", "download"]
+    },
+
     "sqlite": {
         "name": "SQLite",
         "type": "database",

@@ -1,7 +1,20 @@
-FROM alpine:3.19
+FROM python:3.11-slim
 
-WORKDIR /vault
+WORKDIR /app
 
-VOLUME ["/vault"]
+# Install dependencies
+RUN pip install --no-cache-dir \
+    fastapi \
+    uvicorn \
+    cryptography \
+    pydantic
 
-CMD ["sleep", "infinity"]
+COPY vault_service.py .
+
+RUN mkdir -p /vault
+
+ENV VAULT_DIR=/vault
+
+EXPOSE 8000
+
+CMD ["python", "vault_service.py"]

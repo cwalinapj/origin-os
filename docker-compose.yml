@@ -33,8 +33,18 @@ services:
     environment:
       - JWT_SECRET=${JWT_SECRET}
       - CODEX_URL=http://codex:8000
+      - CAD_URL=http://cad:8000
+      - VAULT_URL=http://vault:8000
       - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
       - SEMRUSH_API_KEY=${SEMRUSH_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
       - FS_BASE_PATH=/data
       - MEMORY_PATH=/data/memory
     volumes:
@@ -42,20 +52,39 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - codex
+      - vault
+    restart: unless-stopped
+
+  cad:
+    build: ./services/cad
+    container_name: origin-cad
+    ports:
+      - "8003:8000"
+    environment:
+      - CAD_OUTPUT_DIR=/data/stl
+    volumes:
+      - cad-data:/data/stl
     restart: unless-stopped
 
   vault:
     build: ./services/vault
     container_name: origin-vault
-    env_file:
-      - .env
+    ports:
+      - "8004:8000"
+    environment:
+      - VAULT_MASTER_KEY=${JWT_SECRET}
+      - VAULT_DIR=/vault
     volumes:
-      - ./vault:/vault
+      - vault-data:/vault
     restart: unless-stopped
 
 volumes:
   mcp-data:
     name: origin-mcp-data
+  cad-data:
+    name: origin-cad-data
+  vault-data:
+    name: origin-vault-data
 
 networks:
   default:
