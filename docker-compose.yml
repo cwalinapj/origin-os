@@ -8,9 +8,11 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - CODEX_URL=http://codex:8000
       - MCP_HUB_URL=http://mcp-hub:8000
+      - ORCHESTRATOR_URL=http://orchestrator:8000
     depends_on:
       - codex
       - mcp-hub
+      - orchestrator
     restart: unless-stopped
 
   codex:
@@ -78,6 +80,26 @@ services:
       - vault-data:/vault
     restart: unless-stopped
 
+  orchestrator:
+    build: ./services/orchestrator
+    container_name: origin-orchestrator
+    ports:
+      - "8005:8000"
+    environment:
+      - MCP_HUB_URL=http://mcp-hub:8000
+      - CODEX_URL=http://codex:8000
+      - VAULT_URL=http://vault:8000
+      - CAD_URL=http://cad:8000
+      - UI_URL=http://ui:8000
+      - ORCHESTRATOR_DIR=/data/orchestrator
+    volumes:
+      - orchestrator-data:/data/orchestrator
+    depends_on:
+      - mcp-hub
+      - vault
+      - cad
+    restart: unless-stopped
+
 volumes:
   mcp-data:
     name: origin-mcp-data
@@ -85,6 +107,8 @@ volumes:
     name: origin-cad-data
   vault-data:
     name: origin-vault-data
+  orchestrator-data:
+    name: origin-orchestrator-data
 
 networks:
   default:
