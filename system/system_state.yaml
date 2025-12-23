@@ -1,0 +1,140 @@
+# BUILD MODE POLICY (LOCK THIS FILE)
+# ===================================
+# This file defines the current system state and agent permissions.
+# During BUILD mode, agents have expanded capabilities for construction.
+# All actions are logged, reversible, and tagged for later review.
+
+system:
+  name: Origin OS
+  owner: Paul
+  authority: human
+
+state:
+  mode: BUILD        # BUILD | STRICT | READONLY
+  description: >
+    Bootstrap phase. Governance incomplete.
+    Agents are permitted expanded actions for system construction.
+    All actions are logged, reversible, and tagged for later review.
+  started_at: 2025-01-02T00:00:00Z
+  expires_at: null   # optional hard cutoff later
+  authorized_by: Paul
+
+scope:
+  allowed:
+    - repo_bootstrap
+    - infra_scaffolding
+    - container_creation
+    - schema_authoring
+    - mcp_registry_setup
+    - codex_pipeline_build
+    - sentinel_wiring
+    - backup_restore_system
+
+  forbidden:
+    - client_site_modification
+    - production_traffic_routing
+    - spend_execution
+    - credential_rotation
+    - baseline_deletion
+    - history_rewrite
+
+governance:
+  enforcement_level: relaxed_with_logging
+  
+  override_required_for:
+    - git_push_main
+    - policy_change
+    - enforcement_bypass
+    - auth_schema_change
+  
+  override_record:
+    required: true
+    format:
+      id: string
+      proposal_id: string
+      reason: string
+      authorized_by: Paul
+      timestamp: iso8601
+
+agent_behavior:
+  expectations:
+    - tag_all_commits_with: "[BUILD_MODE]"
+    - log_all_actions
+    - do_not_optimize_for_loopholes
+    - assume_future_revalidation
+
+codex:
+  behavior:
+    on_violation:
+      - log_event
+      - require_human_override
+      - allow_if_authorized
+    on_success:
+      - tag_action_build_mode
+
+sentinel:
+  behavior:
+    alert_on:
+      - unauthorized_scope_attempt
+      - silent_failure
+      - repeated_override_pattern
+
+# =============================================================================
+# MODE DEFINITIONS
+# =============================================================================
+
+modes:
+  BUILD:
+    enforcement: relaxed_with_logging
+    bypass_allowed: true
+    requires_override_record: true
+    agent_permissions: expanded
+    audit_level: full
+
+  STRICT:
+    enforcement: full
+    bypass_allowed: false
+    requires_override_record: false  # no overrides possible
+    agent_permissions: restricted
+    audit_level: full
+
+  READONLY:
+    enforcement: full
+    bypass_allowed: false
+    requires_override_record: false
+    agent_permissions: none
+    audit_level: full
+
+# =============================================================================
+# TRANSITION RULES
+# =============================================================================
+
+transitions:
+  BUILD_to_STRICT:
+    requires:
+      - owner_approval
+      - all_schemas_locked
+      - sentinel_healthy
+      - backup_verified
+    actions:
+      - revoke_expanded_permissions
+      - enable_full_enforcement
+      - create_transition_record
+
+  STRICT_to_READONLY:
+    requires:
+      - security_incident OR owner_trigger
+    actions:
+      - halt_all_writes
+      - preserve_state
+      - notify_owner
+
+  any_to_BUILD:
+    requires:
+      - owner_approval
+      - documented_reason
+      - scheduled_window
+    actions:
+      - enable_expanded_permissions
+      - create_rebuild_record
+      - notify_sentinel
