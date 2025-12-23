@@ -32,6 +32,7 @@ services:
       - GTM_INTERCEPT_URL=http://gtm-intercept:8000
       - WEB_SCRAPER_URL=http://web-scraper:8000
       - IMAGE_COMPARE_URL=http://image-compare:8000
+      - COMMERCE_URL=http://commerce:8000
       - TEMPLATE_GEN_URL=http://template-gen:8000
     volumes:
       - experiment-data:/data/experiments
@@ -196,6 +197,7 @@ services:
       - DEVICE_ROUTER_URL=http://device-router:8000
       - TEMPLATE_GEN_URL=http://template-gen:8000
       - IMAGE_COMPARE_URL=http://image-compare:8000
+      - COMMERCE_URL=http://commerce:8000
       - GITHUB_TOKEN=${GITHUB_TOKEN}
     volumes:
       - auto-claude-data:/data/auto-claude
@@ -431,6 +433,30 @@ volumes:
   image-compare-data:
     name: origin-image-compare-data
 
+  commerce-data:
+    name: origin-commerce-data
+
 networks:
   default:
     name: origin-network
+
+  # ==========================================================================
+  # COMMERCE MCP — Headless E-Commerce Integration
+  # ==========================================================================
+  commerce:
+    build: ./services/commerce-mcp
+    container_name: origin-commerce
+    ports:
+      - "8021:8000"
+    environment:
+      - SHOPIFY_STORE_DOMAIN=${SHOPIFY_STORE_DOMAIN:-}
+      - SHOPIFY_STOREFRONT_TOKEN=${SHOPIFY_STOREFRONT_TOKEN:-}
+      - MEDUSA_URL=${MEDUSA_URL:-http://medusa:9000}
+      - SALEOR_URL=${SALEOR_URL:-}
+      - BIGCOMMERCE_STORE_HASH=${BIGCOMMERCE_STORE_HASH:-}
+      - BIGCOMMERCE_ACCESS_TOKEN=${BIGCOMMERCE_ACCESS_TOKEN:-}
+      - SWELL_STORE_ID=${SWELL_STORE_ID:-}
+      - SWELL_PUBLIC_KEY=${SWELL_PUBLIC_KEY:-}
+    volumes:
+      - commerce-data:/data/commerce
+    restart: unless-stopped
