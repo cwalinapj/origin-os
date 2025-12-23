@@ -1,0 +1,175 @@
+# Codex Enforcement Matrix
+# =========================
+# Defines what actions are allowed in each system mode
+# Actions: allow | allow_with_override | forbid
+
+BUILD:
+  # Git operations
+  git_push_main:
+    action: allow_with_override
+    log: required
+  git_force_push:
+    action: forbid
+  git_rewrite_history:
+    action: forbid
+
+  # Schema operations
+  schema_change:
+    action: allow_with_override
+    log: required
+  schema_delete:
+    action: forbid
+
+  # Container operations
+  container_create:
+    action: allow
+    log: required
+  container_delete:
+    action: forbid
+  container_modify:
+    action: allow
+    log: required
+
+  # Infrastructure
+  infra_scaffold:
+    action: allow
+    log: required
+  infra_destroy:
+    action: forbid
+
+  # Baseline/Data
+  baseline_modify:
+    action: forbid
+  baseline_delete:
+    action: forbid
+  production_data_access:
+    action: forbid
+
+  # Credentials
+  credential_create:
+    action: allow_with_override
+    log: required
+  credential_rotate:
+    action: forbid
+  credential_delete:
+    action: forbid
+
+  # Policy
+  policy_change:
+    action: allow_with_override
+    log: required
+  enforcement_bypass:
+    action: allow_with_override
+    log: required
+
+  # External
+  external_api_call:
+    action: allow
+    log: required
+  spend_execution:
+    action: forbid
+
+STRICT:
+  # Git operations
+  git_push_main:
+    action: forbid
+  git_force_push:
+    action: forbid
+  git_rewrite_history:
+    action: forbid
+
+  # Schema operations
+  schema_change:
+    action: forbid
+  schema_delete:
+    action: forbid
+
+  # Container operations
+  container_create:
+    action: allow
+    log: required
+  container_delete:
+    action: forbid
+  container_modify:
+    action: allow_with_override
+    log: required
+
+  # Infrastructure
+  infra_scaffold:
+    action: forbid
+  infra_destroy:
+    action: forbid
+
+  # Baseline/Data
+  baseline_modify:
+    action: forbid
+  baseline_delete:
+    action: forbid
+  production_data_access:
+    action: allow
+    log: required
+
+  # Credentials
+  credential_create:
+    action: forbid
+  credential_rotate:
+    action: forbid
+  credential_delete:
+    action: forbid
+
+  # Policy
+  policy_change:
+    action: forbid
+  enforcement_bypass:
+    action: forbid
+
+  # External
+  external_api_call:
+    action: allow
+    log: required
+  spend_execution:
+    action: forbid
+
+READONLY:
+  # Everything forbidden except reads
+  git_push_main:
+    action: forbid
+  git_force_push:
+    action: forbid
+  git_rewrite_history:
+    action: forbid
+  schema_change:
+    action: forbid
+  schema_delete:
+    action: forbid
+  container_create:
+    action: forbid
+  container_delete:
+    action: forbid
+  container_modify:
+    action: forbid
+  infra_scaffold:
+    action: forbid
+  infra_destroy:
+    action: forbid
+  baseline_modify:
+    action: forbid
+  baseline_delete:
+    action: forbid
+  production_data_access:
+    action: allow
+    log: required
+  credential_create:
+    action: forbid
+  credential_rotate:
+    action: forbid
+  credential_delete:
+    action: forbid
+  policy_change:
+    action: forbid
+  enforcement_bypass:
+    action: forbid
+  external_api_call:
+    action: forbid
+  spend_execution:
+    action: forbid
