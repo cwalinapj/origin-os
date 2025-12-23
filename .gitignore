@@ -1,7 +1,9 @@
 .env
 .env.local
+.env.encrypted
 vault/*.enc
 *.pyc
 __pycache__
 venv/
 .DS_Store
+*.log

@@ -5,8 +5,41 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - CODEX_URL=http://codex:8000
+      - MCP_HUB_URL=http://mcp-hub:8000
+    depends_on:
+      - codex
+      - mcp-hub
+    restart: unless-stopped
+
+  codex:
+    build: ./services/codex
+    container_name: origin-codex
+    ports:
+      - "8001:8000"
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - REQUIRE_AUTH=true
+      - GOOGLE_SERVICE_ACCOUNT_EMAIL=${GOOGLE_SERVICE_ACCOUNT_EMAIL}
+      - GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=${GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}
+    restart: unless-stopped
+
+  mcp-hub:
+    build: ./services/mcp-hub
+    container_name: origin-mcp-hub
+    ports:
+      - "8002:8000"
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - CODEX_URL=http://codex:8000
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
+      - SEMRUSH_API_KEY=${SEMRUSH_API_KEY}
+      - FS_BASE_PATH=/data
+      - MEMORY_PATH=/data/memory
+    volumes:
+      - mcp-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - codex
     restart: unless-stopped
@@ -20,24 +53,10 @@ services:
       - ./vault:/vault
     restart: unless-stopped
 
-  codex:
-    build: ./services/codex
-    container_name: origin-codex
-    ports:
-      - "8001:8000"
-    env_file:
-      - .env
-    volumes:
-      - ./vault:/vault:ro
-    depends_on:
-      - vault
-    restart: unless-stopped
+volumes:
+  mcp-data:
+    name: origin-mcp-data
 
-  mcp:
-    build: ./services/mcp
-    container_name: origin-mcp
-    env_file:
-      - .env
-    depends_on:
-      - codex
-    restart: unless-stopped
+networks:
+  default:
+    name: origin-network
