@@ -1,0 +1,22 @@
+version: "1.0"
+principle: "Agents never authenticate. Codex issues authority."
+
+token:
+  type: jwt
+  signing: ed25519
+  max_ttl_seconds: 300
+  required_claims:
+    - iss
+    - sub
+    - aud
+    - agent
+    - scope
+    - task_id
+    - iat
+    - exp
+    - jti
+
+enforcement:
+  mcp_requires_token: true
+  vault_requires_token: true
+  agent_direct_access: forbidden

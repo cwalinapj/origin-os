@@ -1,0 +1,1072 @@
+# Experiment Container Schema
+# Defines the complete structure and validation rules for Origin OS experiment containers
+# This schema ensures consistency, reproducibility, and LLM-friendly structure
+# Container-on-Container architecture: one container = one experiment = one isolated reality
+
+schema_version: "1.0"
+schema_type: "experiment_container"
+
+# Core Container-on-Container Definition
+# This is the fundamental structure that makes CoC a reality
+experiment_container:
+  id:
+    type: string
+    pattern: "^exp_[0-9]{3,}$"
+    description: "Unique experiment identifier"
+    required: true
+    immutable: true
+    
+  parent_id:
+    type: string
+    pattern: "^(baseline|exp_[0-9]{3,})$"
+    description: "Parent container ID (baseline or another experiment)"
+    required: false
+    immutable: true
+    default: "baseline"
+    validation: "Must exist in lineage chain"
+    
+  lineage_hash:
+    type: string
+    pattern: "^[a-f0-9]{64}$"
+    description: "SHA-256 hash of full lineage chain for integrity"
+    required: true
+    immutable: true
+    generated: true
+    formula: "sha256(parent_lineage_hash + experiment_id + timestamp)"
+    purpose: "Ensures tamper-proof ancestry and enables Git-like verification"
+    
+  source:
+    description: "Origin of this container's baseline content"
+    required: true
+    immutable: true
+    fields:
+      client_domain:
+        type: string
+        format: url
+        description: "Client website that was captured (never modified)"
+        examples:
+          - "https://supremexdetail.com"
+          - "https://acme-corp.com"
+        required: true
+        validation: "Must be valid HTTPS URL"
+        
+      capture_method:
+        type: enum
+        values:
+          - render      # Full browser render with Playwright
+          - api         # API-based content fetch
+          - snapshot    # Pre-captured snapshot
+        description: "How the baseline was captured"
+        required: true
+        default: "render"
+        
+      captured_at:
+        type: timestamp
+        format: ISO8601
+        description: "When baseline was captured"
+        required: true
+        immutable: true
+        
+      capture_metadata:
+        type: object
+        description: "Additional capture details"
+        required: false
+        fields:
+          user_agent: string
+          viewport: string
+          load_time_ms: integer
+          resources_captured: integer
+          
+  mutation:
+    description: "Changes applied to source to create this variant"
+    required: true
+    immutable_after_create: true
+    fields:
+      description:
+        type: string
+        min_length: 50
+        max_length: 500
+        description: "Clear explanation of what changed and why"
+        required: true
+        examples:
+          - "Changed primary CTA from 'Book Now' to 'Get Free Quote' to reduce commitment friction"
+          - "Moved hero CTA above fold and increased button contrast by 40%"
+          
+      diff:
+        description: "Structured changes from parent"
+        required: true
+        fields:
+          html:
+            type: object
+            description: "HTML structure changes"
+            required: false
+            fields:
+              elements_added: array
+              elements_removed: array
+              elements_modified: array
+              
+          copy:
+            type: object
+            description: "Text/copy changes"
+            required: false
+            fields:
+              changes:
+                type: array
+                items:
+                  selector: string
+                  before: string
+                  after: string
+                  
+          layout:
+            type: object
+            description: "CSS/layout changes"
+            required: false
+            fields:
+              styles_modified: array
+              positioning_changes: array
+              responsive_adjustments: array
+              
+          assets:
+            type: object
+            description: "Image/media changes"
+            required: false
+            
+      rationale:
+        type: string
+        min_length: 100
+        max_length: 1000
+        description: "Why this mutation should improve metrics (hypothesis)"
+        required: true
+        validation: "Must reference psychological principle or prior pattern"
+        examples:
+          - "Reducing commitment language ('Free Quote' vs 'Book Now') lowers psychological barrier to action. Pattern exp_003 showed 23% lift with similar approach."
+          
+  traffic:
+    description: "Traffic routing and isolation configuration"
+    required: true
+    fields:
+      isolation:
+        type: boolean
+        description: "Traffic ONLY to this container, never to client site"
+        required: true
+        const: true
+        enforcement: "CRITICAL - violating this breaks CoC architecture"
+        rationale: "Legal protection and controlled experimentation"
+        
+      source:
+        type: enum
+        values:
+          - paid        # Paid advertising (Google Ads, Facebook, etc.)
+          - organic     # SEO/natural traffic
+          - referral    # Partner/referral traffic
+          - direct      # Direct URL access
+          - social      # Social media
+          - email       # Email campaigns
+        description: "Traffic source type"
+        required: true
+        
+      budget_cap:
+        type: object
+        description: "Spend limits for paid traffic"
+        required: false
+        required_if: "source == 'paid'"
+        fields:
+          daily_usd:
+            type: number
+            minimum: 0
+            maximum: 10000
+            description: "Daily spend cap in USD"
+            validation: "Requires human approval if > 1000"
+            
+          total_usd:
+            type: number
+            minimum: 0
+            description: "Total experiment spend cap"
+            
+          auto_pause_on_limit:
+            type: boolean
+            default: true
+            description: "Automatically stop traffic when limit reached"
+            
+      routing_config:
+        type: object
+        description: "How traffic gets to this container"
+        required: true
+        fields:
+          landing_url:
+            type: string
+            format: url
+            description: "Public URL that routes to this container"
+            pattern: "^https://experiments\\.origin-os\\.io/[a-z0-9-]+/exp_[0-9]+$"
+            
+          cdn_enabled:
+            type: boolean
+            default: true
+            
+          ssl_enabled:
+            type: boolean
+            default: true
+            const: true
+            
+  lifecycle:
+    description: "Container lifecycle management"
+    required: true
+    fields:
+      state:
+        type: enum
+        values:
+          - active      # Running and receiving traffic
+          - frozen      # Stopped but preserved
+          - archived    # Long-term storage, compressed
+        description: "Current lifecycle state"
+        required: true
+        default: "active"
+        
+      immutable_after_create:
+        type: boolean
+        description: "Container content cannot be modified after creation"
+        required: true
+        const: true
+        rationale: "Ensures scientific validity - you can't change experiment mid-run"
+        enforcement: "Any content modification attempt is BLOCKED"
+        
+      min_runtime_days:
+        type: integer
+        minimum: 1
+        description: "Minimum days before container can be frozen"
+        required: true
+        default: 3
+        validation: "Ensures sufficient data collection"
+        
+      created_at:
+        type: timestamp
+        format: ISO8601
+        required: true
+        immutable: true
+        
+      frozen_at:
+        type: timestamp
+        format: ISO8601
+        required: false
+        description: "When container was frozen (stopped receiving traffic)"
+        
+      archived_at:
+        type: timestamp
+        format: ISO8601
+        required: false
+        description: "When container was archived"
+        
+      never_delete:
+        type: boolean
+        const: true
+        description: "Containers are NEVER deleted, only archived"
+        rationale: "Preserves full lineage and learning history"
+        
+  outputs:
+    description: "Data generated by this container"
+    required: true
+    mutable: true
+    fields:
+      metrics:
+        type: object
+        description: "Collected performance metrics"
+        required: true
+        fields:
+          impressions:
+            type: integer
+            minimum: 0
+            description: "Total ad impressions"
+            required: true
+            
+          clicks:
+            type: integer
+            minimum: 0
+            description: "Total clicks to landing page"
+            required: true
+            
+          calls:
+            type: integer
+            minimum: 0
+            description: "Phone calls generated"
+            required: false
+            
+          form_submits:
+            type: integer
+            minimum: 0
+            description: "Form submissions"
+            required: false
+            
+          conversions:
+            type: integer
+            minimum: 0
+            description: "Conversion events"
+            required: false
+            
+          bounce_rate:
+            type: number
+            minimum: 0
+            maximum: 1
+            description: "Bounce rate (0-1)"
+            required: false
+            
+          avg_time_on_page:
+            type: number
+            minimum: 0
+            description: "Average seconds on page"
+            required: false
+            
+          cost_per_click:
+            type: number
+            minimum: 0
+            description: "Average CPC in USD"
+            required: false
+            
+          conversion_rate:
+            type: number
+            minimum: 0
+            maximum: 1
+            description: "Clicks to conversion rate"
+            required: false
+            
+      storage:
+        type: object
+        description: "Where metrics are persisted"
+        required: true
+        fields:
+          raw:
+            type: enum
+            values: [s3]
+            description: "Raw metrics storage (S3 required)"
+            required: true
+            const: "s3"
+            path_pattern: "s3://${METRICS_BUCKET}/raw/{site}/{experiment_id}/"
+            retention: "infinite"
+            format: "jsonl"  # JSON Lines for streaming
+            
+          summary:
+            type: enum
+            values: [s3]
+            description: "Aggregated summary storage"
+            required: true
+            const: "s3"
+            path_pattern: "s3://${METRICS_BUCKET}/summary/{site}/{experiment_id}/"
+            retention: "infinite"
+            format: "json"
+            
+          backup:
+            type: object
+            description: "Backup configuration"
+            required: false
+            fields:
+              enabled: boolean
+              frequency: string
+              retention_days: integer
+
+# Container Metadata
+metadata:
+  required: true
+  fields:
+    experiment_id:
+      type: string
+      pattern: "^exp_[0-9]{3,}$"
+      description: "Unique experiment identifier"
+      examples:
+        - "exp_001"
+        - "exp_042"
+        - "exp_123"
+      required: true
+      
+    site_name:
+      type: string
+      pattern: "^[a-z0-9-]+$"
+      description: "Client site identifier (lowercase, hyphens only)"
+      examples:
+        - "supremexdetail"
+        - "acme-corp"
+        - "client-xyz"
+      required: true
+      
+    variant_name:
+      type: string
+      pattern: "^[a-z0-9-]+$"
+      description: "Human-readable variant description"
+      examples:
+        - "v1"
+        - "cta-test"
+        - "layout-redesign"
+        - "hero-variant-a"
+      required: true
+      
+    timestamp:
+      type: string
+      format: "ISO8601"
+      description: "Container creation timestamp"
+      examples:
+        - "2025-12-22T12:10:00Z"
+        - "2025-12-23T08:45:30Z"
+      required: true
+      generated: true
+      
+    container_name:
+      type: string
+      pattern: "^origin-exp-[a-z0-9-]+-[a-z0-9-]+-[0-9]{8}$"
+      description: "Full container name following naming convention"
+      examples:
+        - "origin-exp-supremex-v1-20251222"
+        - "origin-exp-acme-cta-test-20251223"
+      required: true
+      generated: true
+      formula: "origin-exp-{site_name}-{variant_name}-{yyyymmdd}"
+      
+    status:
+      type: enum
+      values:
+        - "building"
+        - "running"
+        - "frozen"
+        - "archived"
+        - "failed"
+      description: "Current container lifecycle status"
+      required: true
+      default: "building"
+      
+    created_by:
+      type: string
+      description: "Creator (llm, human, or specific user)"
+      examples:
+        - "llm-orchestrator"
+        - "paul"
+        - "automated-pipeline"
+      required: true
+
+# Lineage Information
+lineage:
+  required: true
+  description: "Tracks experiment ancestry and relationships"
+  fields:
+    parent:
+      type: string
+      description: "Parent experiment or baseline"
+      examples:
+        - "baseline"
+        - "exp_001"
+        - "exp_015"
+      required: true
+      validation: "Must exist in experiment history or be 'baseline'"
+      
+    ancestors:
+      type: array
+      items:
+        type: string
+      description: "Full ancestry chain back to baseline"
+      examples:
+        - ["baseline"]
+        - ["baseline", "exp_001"]
+        - ["baseline", "exp_001", "exp_003", "exp_007"]
+      required: true
+      generated: true
+      
+    children:
+      type: array
+      items:
+        type: string
+      description: "Experiments derived from this one"
+      examples:
+        - []
+        - ["exp_002", "exp_003"]
+      required: false
+      mutable: true
+      
+    generation:
+      type: integer
+      minimum: 0
+      description: "Distance from baseline (baseline=0)"
+      examples:
+        - 0  # baseline
+        - 1  # direct child of baseline
+        - 3  # great-grandchild of baseline
+      required: true
+      generated: true
+      
+    branched_from:
+      type: string
+      description: "If this is a new branch, which experiment it diverged from"
+      required: false
+      
+    merge_of:
+      type: array
+      items:
+        type: string
+      description: "If combining multiple experiments, list them"
+      required: false
+
+# Hypothesis
+hypothesis:
+  required: true
+  description: "The theory being tested by this experiment"
+  fields:
+    goal:
+      type: enum
+      values:
+        - "increase_clicks"
+        - "increase_conversions"
+        - "reduce_bounce"
+        - "increase_engagement"
+        - "increase_time_on_page"
+        - "improve_form_completion"
+        - "increase_booking_clicks"
+        - "custom"
+      description: "Primary optimization goal"
+      required: true
+      
+    custom_goal:
+      type: string
+      description: "If goal='custom', describe it here"
+      required: false
+      required_if: "goal == 'custom'"
+      
+    reasoning:
+      type: string
+      min_length: 50
+      max_length: 1000
+      description: "Why this change should work"
+      examples:
+        - "Reduces commitment friction by emphasizing free quote over booking"
+        - "Above-fold CTA placement increases visibility and click probability"
+      required: true
+      
+    expected_impact:
+      type: object
+      required: true
+      fields:
+        metric:
+          type: string
+          description: "Primary metric expected to change"
+          required: true
+          
+        direction:
+          type: enum
+          values: ["increase", "decrease"]
+          required: true
+          
+        magnitude:
+          type: string
+          pattern: "^[0-9]+(-[0-9]+)?%$"
+          description: "Expected change magnitude"
+          examples:
+            - "10%"
+            - "5-15%"
+            - "20%"
+          required: true
+          
+    confidence:
+      type: enum
+      values: ["low", "medium", "high"]
+      description: "Confidence in hypothesis before testing"
+      required: true
+      
+    inspired_by:
+      type: array
+      items:
+        type: string
+      description: "Previous experiments or patterns that inspired this"
+      examples:
+        - ["exp_001", "memory/patterns.md#cta-friction-reduction"]
+        - ["baseline"]
+      required: false
+
+# Changes
+changes:
+  required: true
+  description: "Specific modifications made to baseline"
+  fields:
+    change_type:
+      type: enum
+      values:
+        - "cta"           # Call-to-action text/button
+        - "layout"        # Page structure
+        - "copy"          # Text content
+        - "imagery"       # Images/graphics
+        - "color"         # Color scheme
+        - "form"          # Form fields/structure
+        - "navigation"    # Navigation elements
+        - "hero"          # Hero section
+        - "social_proof"  # Testimonials/reviews
+        - "urgency"       # Scarcity/time pressure
+        - "pricing"       # Price display
+        - "multi"         # Multiple changes
+      required: true
+      
+    modifications:
+      type: array
+      min_items: 1
+      items:
+        type: object
+        fields:
+          element:
+            type: string
+            description: "CSS selector or element description"
+            examples:
+              - "#primary-cta"
+              - ".hero-headline"
+              - "main button.booking"
+            required: true
+            
+          before:
+            type: string
+            description: "Original value/state"
+            required: true
+            
+          after:
+            type: string
+            description: "New value/state"
+            required: true
+            
+          file:
+            type: string
+            description: "File containing the change"
+            examples:
+              - "container/app/index.html"
+              - "container/app/styles.css"
+            required: true
+            
+          line_numbers:
+            type: object
+            fields:
+              start: 
+                type: integer
+              end:
+                type: integer
+            required: false
+            
+    files_modified:
+      type: array
+      items:
+        type: string
+      description: "List of files changed"
+      examples:
+        - ["container/app/index.html"]
+        - ["container/app/index.html", "container/app/styles.css"]
+      required: true
+      generated: true
+      
+    diff_available:
+      type: boolean
+      description: "Whether a diff file exists"
+      default: false
+      required: false
+
+# Container Configuration
+container:
+  required: true
+  description: "Docker container configuration"
+  fields:
+    base_image:
+      type: string
+      description: "Base image used"
+      allowed_values:
+        - "origin-base-web"
+        - "origin-base-web:latest"
+        - "origin-base-web:1.0"
+      required: true
+      default: "origin-base-web"
+      
+    build_path:
+      type: string
+      description: "Path to Dockerfile"
+      pattern: "^experiments/[^/]+/exp_[0-9]+/container/$"
+      required: true
+      
+    ports:
+      type: object
+      required: true
+      fields:
+        http:
+          type: integer
+          minimum: 8000
+          maximum: 9999
+          description: "HTTP port mapping"
+          required: true
+          
+        https:
+          type: integer
+          minimum: 8000
+          maximum: 9999
+          description: "HTTPS port mapping"
+          required: false
+          
+    environment:
+      type: object
+      description: "Environment variables (no secrets)"
+      required: false
+      validation: "No secrets allowed - use secrets manager"
+      
+    volumes:
+      type: array
+      items:
+        type: string
+      description: "Volume mounts"
+      required: false
+      
+    networks:
+      type: array
+      items:
+        type: string
+      description: "Docker networks"
+      default: ["origin-network"]
+      required: true
+      
+    resources:
+      type: object
+      required: true
+      fields:
+        cpu_limit:
+          type: string
+          pattern: "^[0-9]+(\\.[0-9]+)?$"
+          default: "1.0"
+          description: "CPU limit in cores"
+          
+        memory_limit:
+          type: string
+          pattern: "^[0-9]+(Mi|Gi)$"
+          default: "512Mi"
+          description: "Memory limit"
+          
+        storage_limit:
+          type: string
+          pattern: "^[0-9]+(Mi|Gi)$"
+          default: "1Gi"
+          description: "Storage limit"
+          
+    health_check:
+      type: object
+      required: true
+      fields:
+        endpoint:
+          type: string
+          default: "/health"
+          required: true
+          
+        interval:
+          type: integer
+          default: 30
+          description: "Seconds between checks"
+          
+        timeout:
+          type: integer
+          default: 10
+          description: "Timeout in seconds"
+          
+        retries:
+          type: integer
+          default: 3
+          description: "Failed retries before unhealthy"
+
+# Traffic Configuration
+traffic:
+  required: true
+  description: "Traffic routing and spend configuration"
+  fields:
+    routing_enabled:
+      type: boolean
+      description: "Whether traffic is being routed to this container"
+      required: true
+      default: false
+      
+    traffic_sources:
+      type: array
+      items:
+        type: enum
+        values:
+          - "google_ads"
+          - "facebook_ads"
+          - "linkedin_ads"
+          - "twitter_ads"
+          - "organic"
+          - "direct"
+          - "other"
+      description: "Traffic sources for this experiment"
+      required: true
+      min_items: 1
+      
+    traffic_percentage:
+      type: integer
+      minimum: 0
+      maximum: 100
+      description: "Percentage of total traffic allocated"
+      required: true
+      default: 100
+      
+    daily_spend_limit:
+      type: number
+      minimum: 0
+      description: "Daily ad spend limit in USD"
+      required: true
+      validation: "Requires human approval if > 1000"
+      
+    total_spend_limit:
+      type: number
+      minimum: 0
+      description: "Total experiment spend limit in USD"
+      required: true
+      
+    spend_to_date:
+      type: number
+      minimum: 0
+      description: "Total spent so far"
+      required: false
+      mutable: true
+      
+    start_date:
+      type: string
+      format: "date"
+      description: "When traffic routing began"
+      required: false
+      
+    end_date:
+      type: string
+      format: "date"
+      description: "When traffic routing stopped"
+      required: false
+
+# Metrics Configuration
+metrics:
+  required: true
+  description: "Metrics collection and storage configuration"
+  fields:
+    collection_enabled:
+      type: boolean
+      description: "Whether metrics are being collected"
+      required: true
+      default: true
+      
+    metrics_endpoint:
+      type: string
+      description: "Where metrics are sent"
+      pattern: "^https?://.*"
+      required: true
+      
+    s3_path:
+      type: string
+      description: "S3 path for metric storage"
+      pattern: "^s3://[^/]+/metrics/[^/]+/exp_[0-9]+/$"
+      required: true
+      
+    tracked_events:
+      type: array
+      items:
+        type: enum
+        values:
+          - "impression"
+          - "click"
+          - "conversion"
+          - "bounce"
+          - "form_start"
+          - "form_complete"
+          - "page_view"
+          - "time_on_page"
+          - "scroll_depth"
+      required: true
+      min_items: 1
+      
+    aggregation_interval:
+      type: integer
+      description: "Seconds between metric aggregations"
+      default: 60
+      minimum: 30
+      required: true
+
+# Results (populated after experiment runs)
+results:
+  required: false
+  description: "Experimental results - populated after data collection"
+  mutable: true
+  fields:
+    sample_size:
+      type: integer
+      minimum: 0
+      description: "Total number of observations"
+      
+    date_range:
+      type: object
+      fields:
+        start:
+          type: string
+          format: "ISO8601"
+        end:
+          type: string
+          format: "ISO8601"
+          
+    primary_metric:
+      type: object
+      fields:
+        name:
+          type: string
+        baseline_value:
+          type: number
+        experiment_value:
+          type: number
+        change_percent:
+          type: number
+        statistical_significance:
+          type: number
+          minimum: 0
+          maximum: 1
+          
+    secondary_metrics:
+      type: array
+      items:
+        type: object
+        
+    conclusion:
+      type: enum
+      values:
+        - "success"
+        - "failure"
+        - "inconclusive"
+        - "running"
+      
+    confidence:
+      type: enum
+      values: ["low", "medium", "high"]
+      description: "Statistical confidence in results"
+      
+    lessons_learned:
+      type: string
+      min_length: 100
+      description: "Key takeaways from this experiment"
+      
+    recommend_action:
+      type: enum
+      values:
+        - "deploy"
+        - "iterate"
+        - "abandon"
+        - "needs_more_data"
+
+# File Structure Requirements
+required_files:
+  type: array
+  description: "Files that must exist in experiment directory"
+  items:
+    - path: "changes.yaml"
+      description: "Change documentation"
+      required: true
+      
+    - path: "hypothesis.yaml"
+      description: "Hypothesis documentation"
+      required: true
+      
+    - path: "lineage.yaml"
+      description: "Lineage tracking"
+      required: true
+      
+    - path: "container/Dockerfile"
+      description: "Container build file"
+      required: true
+      
+    - path: "container/app/index.html"
+      description: "Main HTML file"
+      required: true
+      
+    - path: "metadata.yaml"
+      description: "Container metadata"
+      required: true
+
+# Validation Rules
+validation:
+  pre_build:
+    - "All required fields populated"
+    - "Parent experiment/baseline exists"
+    - "Experiment ID unique"
+    - "Container name follows convention"
+    - "All required files present"
+    - "Changes documented in changes.yaml"
+    - "Hypothesis has valid reasoning"
+    
+  pre_deployment:
+    - "Container builds successfully"
+    - "Health check endpoint responsive"
+    - "Metrics collection configured"
+    - "Traffic limits set"
+    - "S3 storage path accessible"
+    
+  runtime:
+    - "Resource usage within limits"
+    - "Metrics flowing correctly"
+    - "No unauthorized network access"
+    - "Container remains isolated"
+
+# Lifecycle States
+lifecycle:
+  states:
+    building:
+      description: "Container being built"
+      allowed_transitions: ["running", "failed"]
+      
+    running:
+      description: "Container active with traffic"
+      allowed_transitions: ["frozen", "failed"]
+      
+    frozen:
+      description: "Container stopped but preserved"
+      allowed_transitions: ["archived"]
+      mutable: false
+      
+    archived:
+      description: "Long-term storage, no active traffic"
+      allowed_transitions: []
+      mutable: false
+      
+    failed:
+      description: "Build or runtime failure"
+      allowed_transitions: ["building"]  # Can retry
+
+# Metadata for LLM Usage
+llm_guidance:
+  creation_workflow:
+    - "Read baseline snapshot from experiments/{site}/baseline/"
+    - "Generate hypothesis with clear reasoning"
+    - "Document specific changes in changes.yaml"
+    - "Create lineage.yaml referencing parent"
+    - "Build container files in container/ directory"
+    - "Validate against this schema"
+    - "Build Docker container"
+    - "Configure metrics collection"
+    - "Set traffic routing (initially disabled)"
+    
+  modification_restrictions:
+    - "Never modify baseline directory"
+    - "Never modify other experiments"
+    - "Only write to own experiment directory"
+    - "Append to memory/ files, never overwrite"
+    
+  required_context:
+    - "Baseline snapshot"
+    - "Parent experiment (if not baseline)"
+    - "Current patterns from memory/"
+    - "Enforcement rules from .codex/enforcement.yaml"
+
+# Schema Evolution
+versioning:
+  schema_version: "1.0"
+  backwards_compatible: true
+  breaking_change_policy: "Major version bump required"
+  
+# Examples
+examples:
+  - name: "Basic CTA Change Experiment"
+    experiment_id: "exp_001"
+    site_name: "supremexdetail"
+    variant_name: "cta-free-quote"
+    parent: "baseline"
+    change_type: "cta"
+    goal: "increase_booking_clicks"
+    
+  - name: "Layout Redesign"
+    experiment_id: "exp_042"
+    site_name: "acme-corp"
+    variant_name: "hero-redesign-v2"
+    parent: "exp_037"
+    change_type: "layout"
+    goal: "increase_conversions"

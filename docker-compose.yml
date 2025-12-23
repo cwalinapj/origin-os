@@ -1,0 +1,43 @@
+services:
+  ui:
+    build: ./services/ui
+    container_name: origin-ui
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CODEX_URL=http://codex:8000
+    depends_on:
+      - codex
+    restart: unless-stopped
+
+  vault:
+    build: ./services/vault
+    container_name: origin-vault
+    env_file:
+      - .env
+    volumes:
+      - ./vault:/vault
+    restart: unless-stopped
+
+  codex:
+    build: ./services/codex
+    container_name: origin-codex
+    ports:
+      - "8001:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./vault:/vault:ro
+    depends_on:
+      - vault
+    restart: unless-stopped
+
+  mcp:
+    build: ./services/mcp
+    container_name: origin-mcp
+    env_file:
+      - .env
+    depends_on:
+      - codex
+    restart: unless-stopped
