@@ -25,6 +25,13 @@ services:
       - REQUIRE_AUTH=true
       - GOOGLE_SERVICE_ACCOUNT_EMAIL=${GOOGLE_SERVICE_ACCOUNT_EMAIL}
       - GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=${GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}
+      # Sentinel alert intake
+      - SENTINEL_ALERTS_DIR=/vault/sentinel/alerts
+    volumes:
+      # READ-ONLY access to Sentinel alerts
+      - sentinel-alerts:/vault/sentinel/alerts:ro
+      # Codex rules
+      - codex-rules:/codex/rules:ro
     restart: unless-stopped
 
   mcp-hub:
@@ -80,6 +87,10 @@ services:
       - VAULT_DIR=/vault
     volumes:
       - vault-data:/vault
+      # Sentinel alert storage (Vault owns this)
+      - sentinel-alerts:/vault/sentinel/alerts:rw
+      # Codex audit logs
+      - codex-audit:/vault/codex/audit:rw
     restart: unless-stopped
 
   orchestrator:
@@ -112,22 +123,15 @@ services:
       - BACKUP_DIR=/backups
       - BACKUP_RETENTION_DAYS=30
       - BACKUP_SCHEDULE=daily
-      # Remote backup options: local, backblaze, dropbox, gdrive, rsync, external, s3
       - REMOTE_BACKUP_TYPE=${REMOTE_BACKUP_TYPE:-local}
-      # Backblaze B2 (CHEAPEST - $0.005/GB/month)
       - B2_KEY_ID=${B2_KEY_ID:-}
       - B2_APP_KEY=${B2_APP_KEY:-}
       - B2_BUCKET_NAME=${B2_BUCKET_NAME:-}
-      # Dropbox (FREE 2GB)
       - DROPBOX_ACCESS_TOKEN=${DROPBOX_ACCESS_TOKEN:-}
       - DROPBOX_PATH=${DROPBOX_PATH:-/origin-os-backups}
-      # Google Drive (FREE 15GB)
       - GDRIVE_FOLDER_ID=${GDRIVE_FOLDER_ID:-}
-      # Rsync to server (FREE)
       - RSYNC_DEST=${RSYNC_DEST:-}
-      # External drive
       - EXTERNAL_BACKUP_PATH=${EXTERNAL_BACKUP_PATH:-}
-      # Legacy S3 (expensive)
       - S3_BACKUP_ENABLED=${S3_BACKUP_ENABLED:-false}
       - S3_BACKUP_BUCKET=${S3_BACKUP_BUCKET:-}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
@@ -145,26 +149,21 @@ services:
     ports:
       - "8007:8000"
     environment:
-      # EBS Storage Settings (100GB max, us-west-2)
       - EBS_DATA_DIR=/data/memory
       - EBS_MAX_SIZE_GB=100
       - EBS_COMPACT_TRIGGER_GB=85
       - EBS_TARGET_SIZE_GB=70
-      # Backblaze B2 for archive (from .env)
       - B2_ENABLED=${B2_ENABLED:-true}
       - B2_KEY_ID=${B2_KEY_ID}
       - B2_APP_KEY=${B2_APP_KEY}
       - B2_BUCKET_NAME=${B2_MEMORY_BUCKET:-origin-os-memory}
-      # Worker timing
       - SYNC_INTERVAL_SECONDS=60
       - COMPACTION_CHECK_INTERVAL_SECONDS=300
       - COMPACTION_MIN_AGE_HOURS=24
       - COMPACTION_MIN_TURNS=10
-      # LLM for summarization
       - LLM_API_URL=https://openrouter.ai/api/v1/chat/completions
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - LLM_SUMMARY_MODEL=anthropic/claude-3-haiku
-      # Embeddings
       - EMBEDDING_API_URL=https://api.openai.com/v1/embeddings
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - EMBEDDING_MODEL=text-embedding-3-small
@@ -182,6 +181,24 @@ services:
       - registry-data:/data/registry
     restart: unless-stopped
 
+  sentinel:
+    build: ./services/sentinel
+    container_name: origin-sentinel
+    environment:
+      - S3_ENDPOINT=https://s3.us-west-004.backblazeb2.com
+      - S3_KEY=${B2_KEY_ID}
+      - S3_SECRET=${B2_APP_KEY}
+      - BACKUP_BUCKET=origin-os-backups
+      - CHECK_INTERVAL=3600
+      # WRITE-ONLY to alerts directory
+      - ALERT_OUTPUT_DIR=/vault/sentinel/alerts
+    volumes:
+      # WRITE-ONLY access to Sentinel alerts
+      - sentinel-alerts:/vault/sentinel/alerts:rw
+    depends_on:
+      - vault
+    restart: unless-stopped
+
 volumes:
   mcp-data:
     name: origin-mcp-data
@@ -197,6 +214,13 @@ volumes:
     name: origin-memory-data
   registry-data:
     name: origin-registry-data
+  # Security volumes (one-way flow)
+  sentinel-alerts:
+    name: origin-sentinel-alerts
+  codex-audit:
+    name: origin-codex-audit
+  codex-rules:
+    name: origin-codex-rules
 
 networks:
   default:
