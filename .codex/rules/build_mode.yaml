@@ -1,0 +1,108 @@
+rule: build_mode_governance
+version: "1.0"
+description: |
+  Special rules when system.mode == BUILD
+  Allows limited bypass during bootstrap phase
+  All actions require override records
+
+applies_when:
+  system_state: /system_state.yaml
+  condition: system.mode == "BUILD"
+
+# What BUILD mode allows
+permissions:
+  bypass:
+    allowed: true
+    scope: limited
+    requires:
+      - override_record
+      - owner_present
+      - documented_reason
+    
+  schema_changes:
+    allowed: true
+    requires:
+      - commit_prefix: "[BUILD_MODE]"
+      - changelog_entry
+    
+  rule_changes:
+    allowed: true
+    requires:
+      - commit_prefix: "[BUILD_MODE]"
+      - review_before_operate
+
+  gate_bypass:
+    allowed: true
+    requires:
+      - explicit_flag
+      - audit_log_entry
+      - timeout: 1h
+
+# Override record structure
+override_record:
+  required_fields:
+    - timestamp
+    - actor: owner_only
+    - action
+    - reason
+    - scope
+    - expires_at
+  storage: /vault/build_mode/overrides/
+  immutable: true
+
+# Commit requirements
+commits:
+  prefix: "[BUILD_MODE]"
+  required_tags:
+    - BUILD_PHASE
+  message_format: "[BUILD_MODE] <action>: <description>"
+  examples:
+    - "[BUILD_MODE] scaffold: codex container"
+    - "[BUILD_MODE] schema: add sentinel_alert.schema.yaml"
+    - "[BUILD_MODE] gate: implement mcp_execution_gate"
+    - "[BUILD_MODE] fix: correct volume mount permissions"
+
+# What is still forbidden in BUILD mode
+forbidden:
+  - production_data_access
+  - external_api_calls_without_mock
+  - credential_exposure
+  - security_gate_disable
+  - audit_log_deletion
+
+# Audit requirements (stricter in BUILD)
+audit:
+  log_all_actions: true
+  log_all_bypasses: true
+  log_all_overrides: true
+  require_reason: true
+  destination: /vault/build_mode/audit/
+  retain_days: 3650  # Keep forever for forensics
+
+# Exit criteria to leave BUILD mode
+exit_to_operate:
+  checklist:
+    - name: all_schemas_locked
+      check: no pending schema changes
+      
+    - name: sentinel_passing
+      check: sentinel verification == PASS
+      
+    - name: all_gates_active
+      check: all codex gates enabled
+      
+    - name: no_active_overrides
+      check: all override_records expired or closed
+      
+    - name: backup_verified
+      check: WORM backup exists and verified
+      
+    - name: owner_signoff
+      check: Paul has approved transition
+      
+  actions_on_exit:
+    - lock_all_schemas
+    - revoke_build_permissions
+    - enable_strict_mode
+    - create_transition_record
+    - notify_owner
