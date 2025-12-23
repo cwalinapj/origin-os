@@ -1,6 +1,89 @@
 services:
   # ==========================================================================
-  # FIGMA MCP — Design Integration
+  # GTM INTERCEPT — Real-Time Event Capture for LAM Routing
+  # ==========================================================================
+  gtm-intercept:
+    build: ./services/gtm-intercept
+    container_name: origin-gtm-intercept
+    ports:
+      - "8012:8000"
+    environment:
+      - GTM_CONTAINER_ID=${GTM_CONTAINER_ID:-}
+      - LAM_ROUTER_URL=http://lam-router:8000
+      - GA_FORWARD=${GA_FORWARD:-true}
+    volumes:
+      - gtm-data:/data/gtm
+    depends_on:
+      - lam-router
+    restart: unless-stopped
+
+  # ==========================================================================
+  # LAM ROUTER — Large Action Model (Raspberry Pi 5 + Hailo8)
+  # ==========================================================================
+  lam-router:
+    build: ./services/lam-router
+    container_name: origin-lam-router
+    ports:
+      - "8013:8000"
+    environment:
+      - HAILO_ENABLED=${HAILO_ENABLED:-false}
+      - DECISION_TIMEOUT_MS=100
+    volumes:
+      - lam-data:/data/lam
+      - lam-models:/models/lam
+    restart: unless-stopped
+
+  # ==========================================================================
+  # IMAGE GEN — AI Image Generation
+  # ==========================================================================
+  image-gen:
+    build: ./services/image-gen
+    container_name: origin-image-gen
+    ports:
+      - "8014:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - STABILITY_API_KEY=${STABILITY_API_KEY:-}
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN:-}
+      - FAL_API_KEY=${FAL_API_KEY:-}
+      - IMAGE_GEN_PROVIDER=${IMAGE_GEN_PROVIDER:-openai}
+    volumes:
+      - image-data:/data/images
+    restart: unless-stopped
+
+  # ==========================================================================
+  # TEXT GEN — Lookalike Text Generation
+  # ==========================================================================
+  text-gen:
+    build: ./services/text-gen
+    container_name: origin-text-gen
+    ports:
+      - "8015:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - TEXT_GEN_PROVIDER=${TEXT_GEN_PROVIDER:-openai}
+    volumes:
+      - text-data:/data/text
+    restart: unless-stopped
+
+  # ==========================================================================
+  # WEB SCRAPER — Firecrawl Integration
+  # ==========================================================================
+  web-scraper:
+    build: ./services/web-scraper
+    container_name: origin-web-scraper
+    ports:
+      - "8016:8000"
+    environment:
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
+    volumes:
+      - scraper-data:/data/scraper
+    restart: unless-stopped
+
+  # ==========================================================================
+  # FIGMA — Design Integration
   # ==========================================================================
   figma:
     build: ./services/figma-mcp
@@ -9,17 +92,12 @@ services:
       - "8010:8000"
     environment:
       - FIGMA_API_KEY=${FIGMA_API_KEY}
-      - VAULT_URL=http://vault:8000
-      - CODEX_URL=http://codex:8000
     volumes:
       - figma-data:/data/figma
-    depends_on:
-      - vault
-      - codex
     restart: unless-stopped
 
   # ==========================================================================
-  # VERCEL MCP — Deployment Integration
+  # VERCEL — Deployment Integration
   # ==========================================================================
   vercel:
     build: ./services/vercel-mcp
@@ -29,13 +107,8 @@ services:
     environment:
       - VERCEL_TOKEN=${VERCEL_TOKEN}
       - VERCEL_TEAM_ID=${VERCEL_TEAM_ID:-}
-      - VAULT_URL=http://vault:8000
-      - CODEX_URL=http://codex:8000
     volumes:
       - vercel-data:/data/vercel
-    depends_on:
-      - vault
-      - codex
     restart: unless-stopped
 
   # ==========================================================================
@@ -49,9 +122,7 @@ services:
     environment:
       - LLM_PROVIDER=${LLM_PROVIDER:-claude}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-sonnet-4-20250514}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - GRAPHITI_ENABLED=true
       - FALKORDB_URL=redis://falkordb:6379
@@ -61,6 +132,10 @@ services:
       - MCP_HUB_URL=http://mcp-hub:8000
       - FIGMA_URL=http://figma:8000
       - VERCEL_URL=http://vercel:8000
+      - IMAGE_GEN_URL=http://image-gen:8000
+      - TEXT_GEN_URL=http://text-gen:8000
+      - WEB_SCRAPER_URL=http://web-scraper:8000
+      - GTM_INTERCEPT_URL=http://gtm-intercept:8000
       - GITHUB_TOKEN=${GITHUB_TOKEN}
     volumes:
       - auto-claude-data:/data/auto-claude
@@ -73,6 +148,9 @@ services:
       - memory
       - figma
       - vercel
+      - image-gen
+      - text-gen
+      - web-scraper
       - falkordb
     restart: unless-stopped
 
@@ -88,13 +166,11 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - CODEX_URL=http://codex:8000
       - MCP_HUB_URL=http://mcp-hub:8000
-      - FIGMA_URL=http://figma:8000
-      - VERCEL_URL=http://vercel:8000
+      - GTM_INTERCEPT_URL=http://gtm-intercept:8000
     depends_on:
       - codex
       - mcp-hub
-      - figma
-      - vercel
+      - gtm-intercept
     restart: unless-stopped
 
   codex:
@@ -125,18 +201,22 @@ services:
       - AUTO_CLAUDE_URL=http://auto-claude:8000
       - FIGMA_URL=http://figma:8000
       - VERCEL_URL=http://vercel:8000
+      - IMAGE_GEN_URL=http://image-gen:8000
+      - TEXT_GEN_URL=http://text-gen:8000
+      - WEB_SCRAPER_URL=http://web-scraper:8000
+      - GTM_INTERCEPT_URL=http://gtm-intercept:8000
+      - LAM_ROUTER_URL=http://lam-router:8000
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
     volumes:
       - mcp-data:/data
     depends_on:
       - codex
       - vault
       - memory
-      - figma
-      - vercel
     restart: unless-stopped
 
   vault:
@@ -181,15 +261,13 @@ services:
       - VAULT_URL=http://vault:8000
       - MEMORY_URL=http://memory:8000
       - AUTO_CLAUDE_URL=http://auto-claude:8000
-      - FIGMA_URL=http://figma:8000
-      - VERCEL_URL=http://vercel:8000
+      - GTM_INTERCEPT_URL=http://gtm-intercept:8000
+      - LAM_ROUTER_URL=http://lam-router:8000
     volumes:
       - orchestrator-data:/data/orchestrator
     depends_on:
       - mcp-hub
       - vault
-      - figma
-      - vercel
     restart: unless-stopped
 
   backup:
@@ -232,6 +310,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  # Core
   mcp-data:
     name: origin-mcp-data
   vault-data:
@@ -242,6 +321,8 @@ volumes:
     name: origin-backup-data
   memory-data:
     name: origin-memory-data
+  
+  # Security
   sentinel-alerts:
     name: origin-sentinel-alerts
   codex-audit:
@@ -250,16 +331,36 @@ volumes:
     name: origin-codex-rules
   system-state:
     name: origin-system-state
+  
+  # Auto-Claude
   auto-claude-data:
     name: origin-auto-claude-data
   auto-claude-worktrees:
     name: origin-auto-claude-worktrees
   falkordb-data:
     name: origin-falkordb-data
+  
+  # Integrations
   figma-data:
     name: origin-figma-data
   vercel-data:
     name: origin-vercel-data
+  
+  # Content Generation
+  image-data:
+    name: origin-image-data
+  text-data:
+    name: origin-text-data
+  scraper-data:
+    name: origin-scraper-data
+  
+  # GTM + LAM
+  gtm-data:
+    name: origin-gtm-data
+  lam-data:
+    name: origin-lam-data
+  lam-models:
+    name: origin-lam-models
 
 networks:
   default:
