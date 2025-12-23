@@ -25,13 +25,11 @@ services:
       - REQUIRE_AUTH=true
       - GOOGLE_SERVICE_ACCOUNT_EMAIL=${GOOGLE_SERVICE_ACCOUNT_EMAIL}
       - GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=${GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}
-      # Sentinel alert intake
       - SENTINEL_ALERTS_DIR=/vault/sentinel/alerts
     volumes:
-      # READ-ONLY access to Sentinel alerts
       - sentinel-alerts:/vault/sentinel/alerts:ro
-      # Codex rules
       - codex-rules:/codex/rules:ro
+      - system-state:/system:ro
     restart: unless-stopped
 
   mcp-hub:
@@ -45,6 +43,7 @@ services:
       - CAD_URL=http://cad:8000
       - VAULT_URL=http://vault:8000
       - MEMORY_URL=http://memory:8000
+      - AUTO_CLAUDE_URL=http://auto-claude:8000
       - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
       - SEMRUSH_API_KEY=${SEMRUSH_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
@@ -64,6 +63,7 @@ services:
       - codex
       - vault
       - memory
+      - auto-claude
     restart: unless-stopped
 
   cad:
@@ -87,9 +87,7 @@ services:
       - VAULT_DIR=/vault
     volumes:
       - vault-data:/vault
-      # Sentinel alert storage (Vault owns this)
       - sentinel-alerts:/vault/sentinel/alerts:rw
-      # Codex audit logs
       - codex-audit:/vault/codex/audit:rw
     restart: unless-stopped
 
@@ -105,6 +103,7 @@ services:
       - CAD_URL=http://cad:8000
       - UI_URL=http://ui:8000
       - MEMORY_URL=http://memory:8000
+      - AUTO_CLAUDE_URL=http://auto-claude:8000
       - ORCHESTRATOR_DIR=/data/orchestrator
     volumes:
       - orchestrator-data:/data/orchestrator
@@ -112,6 +111,7 @@ services:
       - mcp-hub
       - vault
       - cad
+      - auto-claude
     restart: unless-stopped
 
   backup:
@@ -190,13 +190,65 @@ services:
       - S3_SECRET=${B2_APP_KEY}
       - BACKUP_BUCKET=origin-os-backups
       - CHECK_INTERVAL=3600
-      # WRITE-ONLY to alerts directory
       - ALERT_OUTPUT_DIR=/vault/sentinel/alerts
     volumes:
-      # WRITE-ONLY access to Sentinel alerts
       - sentinel-alerts:/vault/sentinel/alerts:rw
     depends_on:
       - vault
+    restart: unless-stopped
+
+  # ==========================================================================
+  # AUTO-CLAUDE: Autonomous Multi-Session AI Coding Agent
+  # ==========================================================================
+  auto-claude:
+    build: ./services/auto-claude
+    container_name: origin-auto-claude
+    ports:
+      - "8009:8000"
+    environment:
+      # Claude API
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
+      - AUTO_BUILD_MODEL=${AUTO_BUILD_MODEL:-claude-sonnet-4-20250514}
+      # Memory Layer (FalkorDB)
+      - GRAPHITI_ENABLED=true
+      - GRAPHITI_LLM_PROVIDER=anthropic
+      - GRAPHITI_EMBEDDER_PROVIDER=openai
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # Origin OS Integration
+      - CODEX_URL=http://codex:8000
+      - VAULT_URL=http://vault:8000
+      - MEMORY_URL=http://memory:8000
+      - MCP_HUB_URL=http://mcp-hub:8000
+      # Data directories
+      - AUTO_CLAUDE_DATA_DIR=/data/auto-claude
+      - WORKTREE_DIR=/data/worktrees
+      - SPECS_DIR=/data/specs
+      # GitHub for project repos
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    volumes:
+      # Persistent data
+      - auto-claude-data:/data/auto-claude
+      - auto-claude-worktrees:/data/worktrees
+      - auto-claude-specs:/data/specs
+      # Project access (bind mount to host projects)
+      - ${PROJECTS_DIR:-/Users/root1/projects}:/projects:rw
+      # System state (read-only)
+      - system-state:/system:ro
+    depends_on:
+      - codex
+      - vault
+      - falkordb
+    restart: unless-stopped
+
+  # FalkorDB for Auto-Claude Memory Layer
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: origin-falkordb
+    ports:
+      - "6379:6379"
+    volumes:
+      - falkordb-data:/data
     restart: unless-stopped
 
 volumes:
@@ -214,13 +266,24 @@ volumes:
     name: origin-memory-data
   registry-data:
     name: origin-registry-data
-  # Security volumes (one-way flow)
+  # Security volumes
   sentinel-alerts:
     name: origin-sentinel-alerts
   codex-audit:
     name: origin-codex-audit
   codex-rules:
     name: origin-codex-rules
+  system-state:
+    name: origin-system-state
+  # Auto-Claude volumes
+  auto-claude-data:
+    name: origin-auto-claude-data
+  auto-claude-worktrees:
+    name: origin-auto-claude-worktrees
+  auto-claude-specs:
+    name: origin-auto-claude-specs
+  falkordb-data:
+    name: origin-falkordb-data
 
 networks:
   default:
