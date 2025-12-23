@@ -37,6 +37,7 @@ services:
       - CODEX_URL=http://codex:8000
       - CAD_URL=http://cad:8000
       - VAULT_URL=http://vault:8000
+      - MEMORY_URL=http://memory:8000
       - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
       - SEMRUSH_API_KEY=${SEMRUSH_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
@@ -55,6 +56,7 @@ services:
     depends_on:
       - codex
       - vault
+      - memory
     restart: unless-stopped
 
   cad:
@@ -91,6 +93,7 @@ services:
       - VAULT_URL=http://vault:8000
       - CAD_URL=http://cad:8000
       - UI_URL=http://ui:8000
+      - MEMORY_URL=http://memory:8000
       - ORCHESTRATOR_DIR=/data/orchestrator
     volumes:
       - orchestrator-data:/data/orchestrator
@@ -136,6 +139,40 @@ services:
       - ${EXTERNAL_BACKUP_PATH:-/tmp/no-external}:/mnt/external:rw
     restart: unless-stopped
 
+  memory:
+    build: ./services/memory-s3
+    container_name: origin-memory
+    ports:
+      - "8007:8000"
+    environment:
+      # EBS Storage Settings (100GB max, us-west-2)
+      - EBS_DATA_DIR=/data/memory
+      - EBS_MAX_SIZE_GB=100
+      - EBS_COMPACT_TRIGGER_GB=85
+      - EBS_TARGET_SIZE_GB=70
+      # Backblaze B2 for archive (from .env)
+      - B2_ENABLED=${B2_ENABLED:-true}
+      - B2_KEY_ID=${B2_KEY_ID}
+      - B2_APP_KEY=${B2_APP_KEY}
+      - B2_BUCKET_NAME=${B2_MEMORY_BUCKET:-origin-os-memory}
+      # Worker timing
+      - SYNC_INTERVAL_SECONDS=60
+      - COMPACTION_CHECK_INTERVAL_SECONDS=300
+      - COMPACTION_MIN_AGE_HOURS=24
+      - COMPACTION_MIN_TURNS=10
+      # LLM for summarization
+      - LLM_API_URL=https://openrouter.ai/api/v1/chat/completions
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - LLM_SUMMARY_MODEL=anthropic/claude-3-haiku
+      # Embeddings
+      - EMBEDDING_API_URL=https://api.openai.com/v1/embeddings
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - EMBEDDING_MODEL=text-embedding-3-small
+      - EMBEDDING_DIM=1536
+    volumes:
+      - memory-data:/data/memory
+    restart: unless-stopped
+
 volumes:
   mcp-data:
     name: origin-mcp-data
@@ -147,6 +184,8 @@ volumes:
     name: origin-orchestrator-data
   backup-data:
     name: origin-backup-data
+  memory-data:
+    name: origin-memory-data
 
 networks:
   default:
