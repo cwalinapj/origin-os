@@ -32,7 +32,29 @@ BACKUP_DIR = os.getenv("BACKUP_DIR", "/backups")
 RETENTION_DAYS = int(os.getenv("BACKUP_RETENTION_DAYS", "30"))
 BACKUP_SCHEDULE = os.getenv("BACKUP_SCHEDULE", "daily")  # hourly, daily, weekly
 
-# S3 Configuration (optional)
+# Remote Backup Configuration (optional - choose one)
+# Options: local, gdrive, dropbox, backblaze, rsync
+REMOTE_BACKUP_TYPE = os.getenv("REMOTE_BACKUP_TYPE", "local")  # local = no remote
+
+# Google Drive (FREE 15GB)
+GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID", "")
+
+# Dropbox (FREE 2GB, cheap pro)
+DROPBOX_ACCESS_TOKEN = os.getenv("DROPBOX_ACCESS_TOKEN", "")
+DROPBOX_PATH = os.getenv("DROPBOX_PATH", "/origin-os-backups")
+
+# Backblaze B2 (CHEAPEST - $0.005/GB/month vs S3 $0.023)
+B2_KEY_ID = os.getenv("B2_KEY_ID", "")
+B2_APP_KEY = os.getenv("B2_APP_KEY", "")
+B2_BUCKET_NAME = os.getenv("B2_BUCKET_NAME", "")
+
+# Rsync to remote server (FREE if you have a server)
+RSYNC_DEST = os.getenv("RSYNC_DEST", "")  # user@host:/path/to/backups
+
+# Local external drive
+EXTERNAL_BACKUP_PATH = os.getenv("EXTERNAL_BACKUP_PATH", "")  # /mnt/external/backups
+
+# Legacy S3 (expensive but supported)
 S3_ENABLED = os.getenv("S3_BACKUP_ENABLED", "false").lower() == "true"
 S3_BUCKET = os.getenv("S3_BACKUP_BUCKET", "")
 S3_PREFIX = os.getenv("S3_BACKUP_PREFIX", "origin-os-backups")
@@ -180,10 +202,9 @@ def run_backup(backup_type: str = "daily") -> Dict:
         with open(os.path.join(backup_path, "manifest.json"), "w") as f:
             json.dump(manifest, f, indent=2)
         
-        # Upload to S3 if enabled
-        if S3_ENABLED and S3_BUCKET:
-            s3_result = upload_to_s3(backup_path, backup_type, timestamp)
-            results["s3"] = s3_result
+        # Upload to remote storage if configured
+        remote_result = upload_remote(backup_path, backup_type, timestamp)
+        results["remote"] = remote_result
         
         # Update state
         backup_state["last_backup"] = timestamp
@@ -204,7 +225,7 @@ def run_backup(backup_type: str = "daily") -> Dict:
 
 
 def upload_to_s3(backup_path: str, backup_type: str, timestamp: str) -> Dict:
-    """Upload backup to S3"""
+    """Upload backup to S3 (expensive - consider alternatives)"""
     try:
         import boto3
         s3 = boto3.client('s3')
@@ -217,10 +238,169 @@ def upload_to_s3(backup_path: str, backup_type: str, timestamp: str) -> Dict:
                 s3.upload_file(filepath, S3_BUCKET, s3_key)
                 uploaded.append(s3_key)
         
-        return {"success": True, "uploaded": uploaded, "bucket": S3_BUCKET}
+        return {"success": True, "uploaded": uploaded, "bucket": S3_BUCKET, "provider": "s3"}
     
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def upload_to_backblaze(backup_path: str, backup_type: str, timestamp: str) -> Dict:
+    """Upload to Backblaze B2 - CHEAPEST cloud storage ($0.005/GB/month)"""
+    try:
+        from b2sdk.v2 import B2Api, InMemoryAccountInfo
+        
+        info = InMemoryAccountInfo()
+        b2_api = B2Api(info)
+        b2_api.authorize_account("production", B2_KEY_ID, B2_APP_KEY)
+        
+        bucket = b2_api.get_bucket_by_name(B2_BUCKET_NAME)
+        
+        uploaded = []
+        for filename in os.listdir(backup_path):
+            filepath = os.path.join(backup_path, filename)
+            if os.path.isfile(filepath):
+                b2_path = f"origin-os-backups/{backup_type}/{timestamp}/{filename}"
+                bucket.upload_local_file(filepath, b2_path)
+                uploaded.append(b2_path)
+        
+        return {"success": True, "uploaded": uploaded, "bucket": B2_BUCKET_NAME, "provider": "backblaze"}
+    
+    except Exception as e:
+        return {"success": False, "error": str(e), "provider": "backblaze"}
+
+
+def upload_to_dropbox(backup_path: str, backup_type: str, timestamp: str) -> Dict:
+    """Upload to Dropbox - FREE 2GB, cheap pro plans"""
+    try:
+        import dropbox
+        
+        dbx = dropbox.Dropbox(DROPBOX_ACCESS_TOKEN)
+        
+        uploaded = []
+        for filename in os.listdir(backup_path):
+            filepath = os.path.join(backup_path, filename)
+            if os.path.isfile(filepath):
+                dbx_path = f"{DROPBOX_PATH}/{backup_type}/{timestamp}/{filename}"
+                with open(filepath, 'rb') as f:
+                    dbx.files_upload(f.read(), dbx_path)
+                uploaded.append(dbx_path)
+        
+        return {"success": True, "uploaded": uploaded, "provider": "dropbox"}
+    
+    except Exception as e:
+        return {"success": False, "error": str(e), "provider": "dropbox"}
+
+
+def upload_to_gdrive(backup_path: str, backup_type: str, timestamp: str) -> Dict:
+    """Upload to Google Drive - FREE 15GB"""
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaFileUpload
+        
+        # Requires service account credentials in GOOGLE_APPLICATION_CREDENTIALS env var
+        creds = service_account.Credentials.from_service_account_file(
+            os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '/credentials/gdrive.json')
+        )
+        service = build('drive', 'v3', credentials=creds)
+        
+        # Create folder for this backup
+        folder_metadata = {
+            'name': f"{backup_type}_{timestamp}",
+            'mimeType': 'application/vnd.google-apps.folder',
+            'parents': [GDRIVE_FOLDER_ID] if GDRIVE_FOLDER_ID else []
+        }
+        folder = service.files().create(body=folder_metadata, fields='id').execute()
+        folder_id = folder.get('id')
+        
+        uploaded = []
+        for filename in os.listdir(backup_path):
+            filepath = os.path.join(backup_path, filename)
+            if os.path.isfile(filepath):
+                file_metadata = {'name': filename, 'parents': [folder_id]}
+                media = MediaFileUpload(filepath, resumable=True)
+                file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+                uploaded.append(f"gdrive://{file.get('id')}/{filename}")
+        
+        return {"success": True, "uploaded": uploaded, "folder_id": folder_id, "provider": "gdrive"}
+    
+    except Exception as e:
+        return {"success": False, "error": str(e), "provider": "gdrive"}
+
+
+def rsync_backup(backup_path: str, backup_type: str, timestamp: str) -> Dict:
+    """Rsync to remote server - FREE if you have a server"""
+    try:
+        dest = f"{RSYNC_DEST}/{backup_type}/{timestamp}/"
+        
+        # Create remote directory
+        subprocess.run(["ssh", RSYNC_DEST.split(':')[0].split('@')[1] if '@' in RSYNC_DEST else RSYNC_DEST.split(':')[0], 
+                       f"mkdir -p {RSYNC_DEST.split(':')[1]}/{backup_type}/{timestamp}"], 
+                      check=True, timeout=30)
+        
+        # Rsync files
+        result = subprocess.run(
+            ["rsync", "-avz", "--progress", f"{backup_path}/", dest],
+            capture_output=True, text=True, timeout=600
+        )
+        
+        if result.returncode == 0:
+            return {"success": True, "destination": dest, "provider": "rsync"}
+        else:
+            return {"success": False, "error": result.stderr, "provider": "rsync"}
+    
+    except Exception as e:
+        return {"success": False, "error": str(e), "provider": "rsync"}
+
+
+def copy_to_external(backup_path: str, backup_type: str, timestamp: str) -> Dict:
+    """Copy to external/mounted drive - FREE, most reliable"""
+    try:
+        if not EXTERNAL_BACKUP_PATH or not os.path.exists(EXTERNAL_BACKUP_PATH):
+            return {"success": False, "error": "External path not mounted", "provider": "external"}
+        
+        dest_path = os.path.join(EXTERNAL_BACKUP_PATH, backup_type, timestamp)
+        os.makedirs(dest_path, exist_ok=True)
+        
+        copied = []
+        for filename in os.listdir(backup_path):
+            src = os.path.join(backup_path, filename)
+            dst = os.path.join(dest_path, filename)
+            if os.path.isfile(src):
+                shutil.copy2(src, dst)
+                copied.append(dst)
+        
+        return {"success": True, "copied": copied, "destination": dest_path, "provider": "external"}
+    
+    except Exception as e:
+        return {"success": False, "error": str(e), "provider": "external"}
+
+
+def upload_remote(backup_path: str, backup_type: str, timestamp: str) -> Dict:
+    """Upload to configured remote storage"""
+    if REMOTE_BACKUP_TYPE == "local" or not REMOTE_BACKUP_TYPE:
+        return {"success": True, "provider": "local", "message": "Local only, no remote configured"}
+    
+    elif REMOTE_BACKUP_TYPE == "backblaze" and B2_KEY_ID:
+        return upload_to_backblaze(backup_path, backup_type, timestamp)
+    
+    elif REMOTE_BACKUP_TYPE == "dropbox" and DROPBOX_ACCESS_TOKEN:
+        return upload_to_dropbox(backup_path, backup_type, timestamp)
+    
+    elif REMOTE_BACKUP_TYPE == "gdrive" and GDRIVE_FOLDER_ID:
+        return upload_to_gdrive(backup_path, backup_type, timestamp)
+    
+    elif REMOTE_BACKUP_TYPE == "rsync" and RSYNC_DEST:
+        return rsync_backup(backup_path, backup_type, timestamp)
+    
+    elif REMOTE_BACKUP_TYPE == "external" and EXTERNAL_BACKUP_PATH:
+        return copy_to_external(backup_path, backup_type, timestamp)
+    
+    elif REMOTE_BACKUP_TYPE == "s3" and S3_ENABLED and S3_BUCKET:
+        return upload_to_s3(backup_path, backup_type, timestamp)
+    
+    else:
+        return {"success": False, "error": f"Remote type '{REMOTE_BACKUP_TYPE}' not configured properly"}
 
 
 def cleanup_old_backups():

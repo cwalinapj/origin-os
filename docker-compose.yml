@@ -109,16 +109,31 @@ services:
       - BACKUP_DIR=/backups
       - BACKUP_RETENTION_DAYS=30
       - BACKUP_SCHEDULE=daily
-      # Optional S3 backup
+      # Remote backup options: local, backblaze, dropbox, gdrive, rsync, external, s3
+      - REMOTE_BACKUP_TYPE=${REMOTE_BACKUP_TYPE:-local}
+      # Backblaze B2 (CHEAPEST - $0.005/GB/month)
+      - B2_KEY_ID=${B2_KEY_ID:-}
+      - B2_APP_KEY=${B2_APP_KEY:-}
+      - B2_BUCKET_NAME=${B2_BUCKET_NAME:-}
+      # Dropbox (FREE 2GB)
+      - DROPBOX_ACCESS_TOKEN=${DROPBOX_ACCESS_TOKEN:-}
+      - DROPBOX_PATH=${DROPBOX_PATH:-/origin-os-backups}
+      # Google Drive (FREE 15GB)
+      - GDRIVE_FOLDER_ID=${GDRIVE_FOLDER_ID:-}
+      # Rsync to server (FREE)
+      - RSYNC_DEST=${RSYNC_DEST:-}
+      # External drive
+      - EXTERNAL_BACKUP_PATH=${EXTERNAL_BACKUP_PATH:-}
+      # Legacy S3 (expensive)
       - S3_BACKUP_ENABLED=${S3_BACKUP_ENABLED:-false}
       - S3_BACKUP_BUCKET=${S3_BACKUP_BUCKET:-}
-      - S3_BACKUP_PREFIX=origin-os-backups
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_REGION=${AWS_REGION:-}
     volumes:
       - backup-data:/backups
       - /var/run/docker.sock:/var/run/docker.sock
+      - ${EXTERNAL_BACKUP_PATH:-/tmp/no-external}:/mnt/external:rw
     restart: unless-stopped
 
 volumes:
