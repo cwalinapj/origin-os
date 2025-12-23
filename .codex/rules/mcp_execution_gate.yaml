@@ -1,0 +1,72 @@
+gate: mcp_execute
+version: "1.0"
+description: |
+  MCP execution is physically gated by Codex.
+  No MCP tool can execute if there are active P0/P1 alerts.
+  This prevents compromised systems from taking actions.
+
+requires:
+  - codex_clearance: true
+  - no_active_sentinel_P0: true
+  - no_active_sentinel_P1: true
+
+# Pre-execution checks
+pre_checks:
+  - name: check_sentinel_p0
+    query: /vault/sentinel/alerts/?severity=P0&status=active
+    condition: count == 0
+    on_fail: block_execution
+    message: "MCP blocked: Active P0 alert from Sentinel"
+    
+  - name: check_sentinel_p1
+    query: /vault/sentinel/alerts/?severity=P1&status=active
+    condition: count == 0
+    on_fail: block_execution
+    message: "MCP blocked: Active P1 alert from Sentinel"
+    
+  - name: check_codex_clearance
+    query: /codex/clearance/mcp
+    condition: cleared == true
+    on_fail: block_execution
+    message: "MCP blocked: Codex clearance not granted"
+
+# Domain-specific gates
+domain_gates:
+  backup:
+    additional_checks:
+      - no_integrity_violations
+      - backup_bucket_verified
+    on_violation: halt_and_alert
+    
+  restore:
+    additional_checks:
+      - source_backup_verified
+      - checksum_validated
+      - retention_confirmed
+    on_violation: halt_and_alert
+    
+  filesystem:
+    additional_checks:
+      - no_baseline_mutation
+      - path_whitelisted
+    on_violation: block_and_log
+
+# What happens when gate blocks
+blocking_actions:
+  - log_to_audit
+  - notify_codex
+  - increment_block_counter
+  - store_blocked_request
+
+# Bypass rules (extremely restricted)
+bypass:
+  allowed: false
+  human_override: false
+  emergency_only: false
+  # There is NO bypass. If Sentinel raises P0, MCP stops.
+
+audit:
+  log_all_checks: true
+  log_blocked_requests: true
+  destination: /vault/codex/mcp_gate/
+  retain_days: 3650

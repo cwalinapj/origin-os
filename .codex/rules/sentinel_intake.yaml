@@ -1,0 +1,85 @@
+intake: sentinel_alerts
+version: "1.0"
+description: |
+  Codex intake rule for Sentinel alerts.
+  Enforces one-way information flow from Sentinel → Codex.
+  Codex validates all alerts before acting.
+
+source:
+  path: /vault/sentinel/alerts/
+  format: json
+  signed: true
+  polling_interval: 60  # seconds
+
+validation:
+  schema: sentinel_alert.schema.yaml
+  checksum_required: true
+  require_fields:
+    - sentinel_id
+    - timestamp
+    - severity
+    - domain
+    - finding
+
+# Trust boundaries
+trust:
+  sentinel_can_write: true
+  sentinel_can_read: false
+  codex_can_write: false
+  codex_can_read: true
+
+severity_mapping:
+  P0:
+    action: halt_all_related_tasks
+    notify: human_required
+    escalation:
+      - block_restore_tasks
+      - block_future_backups
+      - quarantine_affected_objects
+      - write_audit_log
+    timeout: null  # No auto-resolution
+    
+  P1:
+    action: pause_pipeline
+    notify: optional
+    escalation:
+      - flag_for_review
+      - write_audit_log
+    timeout: 3600  # Auto-escalate to P0 after 1 hour if unresolved
+    
+  P2:
+    action: log_only
+    notify: false
+    escalation:
+      - write_audit_log
+    timeout: null
+
+# What Codex validates before trusting an alert
+validation_checks:
+  - name: schema_valid
+    check: validate_against(sentinel_alert.schema.yaml)
+    
+  - name: timestamp_recent
+    check: timestamp > (now - 24h)
+    reason: Reject stale alerts
+    
+  - name: sentinel_id_known
+    check: sentinel_id in registered_sentinels
+    reason: Reject alerts from unknown sources
+    
+  - name: checksum_present
+    check: checksum_verified is not null
+    reason: All alerts must report checksum status
+
+# Correlation rules
+correlation:
+  group_by: [domain, object]
+  dedupe_window: 300  # 5 minutes
+  escalate_on_repeat: true
+  repeat_threshold: 3
+
+audit:
+  log_all_alerts: true
+  log_validation_failures: true
+  destination: /vault/codex/audit/
+  retain_days: 3650
