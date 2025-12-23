@@ -27,7 +27,7 @@ import httpx
 # CONFIGURATION
 # =============================================================================
 
-FIGMA_API_KEY = os.getenv("FIGMA_API_KEY", "")
+FIGMA_API_KEY = os.getenv("FIGMA_PAT", "") or os.getenv("FIGMA_API_KEY", "")
 FIGMA_BASE_URL = "https://api.figma.com/v1"
 
 VAULT_URL = os.getenv("VAULT_URL", "http://vault:8000")

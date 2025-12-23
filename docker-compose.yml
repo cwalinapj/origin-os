@@ -91,7 +91,7 @@ services:
     ports:
       - "8010:8000"
     environment:
-      - FIGMA_API_KEY=${FIGMA_API_KEY}
+      - FIGMA_API_KEY=${FIGMA_PAT:-${FIGMA_API_KEY}}
     volumes:
       - figma-data:/data/figma
     restart: unless-stopped
