@@ -173,6 +173,15 @@ services:
       - memory-data:/data/memory
     restart: unless-stopped
 
+  mcp-registry:
+    build: ./services/mcp-registry
+    container_name: origin-mcp-registry
+    ports:
+      - "8008:8000"
+    volumes:
+      - registry-data:/data/registry
+    restart: unless-stopped
+
 volumes:
   mcp-data:
     name: origin-mcp-data
@@ -186,6 +195,8 @@ volumes:
     name: origin-backup-data
   memory-data:
     name: origin-memory-data
+  registry-data:
+    name: origin-registry-data
 
 networks:
   default:
