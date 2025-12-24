@@ -1,28 +1,40 @@
 #!/usr/bin/env python3
 """
-PROMETHEUS METRICS — Instrumented Observability
-===============================================
+PROMETHEUS METRICS — Low-Cardinality Observability
+===================================================
 
-Exposes metrics for the Surprise Heatmap and Global Drift detection.
+CRITICAL: Cardinality Guardrail
+- Durable Labels (High Value): vertical, site_id
+- Transient Labels (EXCLUDED): page_id, session_id, visitor_id
 
-CRITICAL: Surprise buckets are SYMMETRIC around zero to distinguish:
-- Under-performance Surprise (negative): Model was too optimistic
-- Over-performance Surprise (positive): Model was too pessimistic
+High-cardinality details → MongoDB/Loki (for autopsy)
+Low-cardinality aggregates → Prometheus (for heatmap)
 
-Bucket interpretation:
-- Near-Zero [-0.1, 0.1]: Calibration Zone — LAM is high-fidelity
-- Extreme Negative [-1.0, -0.5]: Critical Failures — trigger Inversion
-- Extreme Positive [0.5, 1.0]: Exploration Jackpots — Knowledge Mesh candidates
+Symmetric Surprise Buckets:
+- (-1.0, -0.5, -0.25, -0.1, 0.0, 0.1, 0.25, 0.5, 1.0)
+- Centered around zero for directional analysis
+
+Bucket Interpretation:
+- Near-Zero [-0.1, 0.1]: Calibration Zone — high-fidelity LAM
+- Extreme Negative [-1.0, -0.5]: Critical Failures → Inversion
+- Extreme Positive [0.5, 1.0]: Exploration Jackpots → Knowledge Mesh
 """
 
+import logging
 from prometheus_client import (
-    Counter, Gauge, Histogram, Info,
+    Counter, Gauge, Histogram,
     generate_latest, CONTENT_TYPE_LATEST,
     CollectorRegistry, REGISTRY
 )
 from functools import wraps
 import time
 import asyncio
+
+# =============================================================================
+# LOGGING — High-cardinality details go here, NOT Prometheus
+# =============================================================================
+
+logger = logging.getLogger("lam.metrics")
 
 # =============================================================================
 # REGISTRY
@@ -38,9 +50,6 @@ except:
 # =============================================================================
 # SYMMETRIC SURPRISE BUCKETS
 # =============================================================================
-# These buckets center around 0.0 to enable directional analysis:
-# - Negative = Model overestimated (Critical Failures)
-# - Positive = Model underestimated (Exploration Jackpots)
 
 SURPRISE_BUCKETS = (
     -1.0, -0.5, -0.25, -0.1,  # Under-performance (model too optimistic)
@@ -49,14 +58,16 @@ SURPRISE_BUCKETS = (
 )
 
 # =============================================================================
-# LAM SURPRISE METRICS — Feeds the Surprise Heatmap
+# LAM SURPRISE METRICS — Low Cardinality for Heatmap
 # =============================================================================
 
+# CORRECT: Only durable labels (vertical, site_id)
+# page_id is EXCLUDED to prevent cardinality explosion
 lam_surprise_delta = Histogram(
     'lam_surprise_delta',
-    'Distribution of surprise deltas (actual - predicted reward). '
+    'Delta between expected and observed reward. '
     'Symmetric buckets enable directional analysis around zero.',
-    labelnames=['vertical', 'site_id'],
+    labelnames=['vertical', 'site_id'],  # page_id EXCLUDED
     buckets=SURPRISE_BUCKETS,
     registry=registry
 )
@@ -75,7 +86,7 @@ lam_calibration_error = Gauge(
     registry=registry
 )
 
-# Surprise zone counters for alerting
+# Zone counters (low cardinality)
 surprise_critical_failures = Counter(
     'surprise_critical_failures_total',
     'Observations in extreme negative buckets [-1.0, -0.5]',
@@ -98,39 +109,40 @@ surprise_calibrated_total = Counter(
 )
 
 # =============================================================================
-# BANDIT METRICS — Thompson Sampling Performance
+# BANDIT METRICS — Low Cardinality
 # =============================================================================
 
+# Aggregate by site_id and outcome, NOT page_id
 bandit_reward_total = Counter(
     'bandit_reward_total',
     'Total rewards by outcome type',
-    labelnames=['page_id', 'outcome'],
+    labelnames=['site_id', 'outcome'],  # page_id EXCLUDED
     registry=registry
 )
 
 bandit_arm_samples = Gauge(
     'bandit_arm_samples',
     'Number of samples per arm',
-    labelnames=['site_id', 'arm_id'],
+    labelnames=['site_id', 'arm_index'],  # arm_index is bounded (0-3)
     registry=registry
 )
 
 bandit_arm_alpha = Gauge(
     'bandit_arm_alpha',
     'Thompson Sampling alpha parameter',
-    labelnames=['site_id', 'arm_id'],
+    labelnames=['site_id', 'arm_index'],
     registry=registry
 )
 
 bandit_arm_beta = Gauge(
     'bandit_arm_beta',
     'Thompson Sampling beta parameter',
-    labelnames=['site_id', 'arm_id'],
+    labelnames=['site_id', 'arm_index'],
     registry=registry
 )
 
 # =============================================================================
-# NEURAL DRIFT METRICS — Global Re-Exploration Triggers
+# NEURAL DRIFT METRICS
 # =============================================================================
 
 global_neural_drift_magnitude = Gauge(
@@ -155,7 +167,7 @@ force_reexplore_triggers = Counter(
 )
 
 # =============================================================================
-# ROUTER METRICS — Circuit Breaker Monitoring
+# ROUTER METRICS
 # =============================================================================
 
 router_decision_latency_seconds = Histogram(
@@ -181,7 +193,7 @@ circuit_breaker_trips = Counter(
 )
 
 # =============================================================================
-# LOA METRICS — Level of Autonomy Tracking
+# LOA METRICS
 # =============================================================================
 
 loa_current_level = Gauge(
@@ -290,62 +302,69 @@ container_lifetime_seconds = Histogram(
 )
 
 # =============================================================================
-# SURPRISE RECORDING FUNCTION
+# SURPRISE RECORDING — THE FINAL IMPLEMENTATION
 # =============================================================================
 
-def record_surprise(
-    vertical: str,
-    site_id: str,
-    predicted_reward: float,
-    actual_reward: float
-):
+def record_surprise(sample: dict, pred_reward: float, actual_reward: float):
     """
-    Record a surprise delta for the Heatmap.
+    Record a surprise delta with proper cardinality management.
     
-    CRITICAL: surprise = actual - predicted (signed, directional)
-    
-    - Negative surprise: Model was too optimistic (Critical Failure)
-    - Positive surprise: Model was too pessimistic (Exploration Jackpot)
-    - Near-zero: Model is well-calibrated
+    1. Update the Heatmap (Prometheus) — LOW cardinality
+    2. Log the high-cardinality "Autopsy" data (Loki/Mongo)
     
     Args:
-        vertical: Site vertical (ecommerce, b2b, saas)
-        site_id: Unique site identifier
-        predicted_reward: What the LAM predicted
+        sample: The sample dict with meta.category, site_id, page_id
+        pred_reward: What the LAM predicted
         actual_reward: What actually happened
     """
-    surprise = actual_reward - predicted_reward
+    vertical = sample.get("meta", {}).get("category", "unknown")
+    site_id = sample.get("site_id", "unknown")
+    page_id = sample.get("page_id", "unknown")  # For logging only
     
-    # Record to histogram
+    surprise = actual_reward - pred_reward
+    
+    # 1. Update the Heatmap (Prometheus) — LOW CARDINALITY
     lam_surprise_delta.labels(
         vertical=vertical,
         site_id=site_id
+        # page_id is EXCLUDED to prevent cardinality explosion
     ).observe(surprise)
     
-    # Track zone counters for alerting
+    # Track zone counters
     if surprise <= -0.5:
-        # Critical Failure: Model was WAY too optimistic
         surprise_critical_failures.labels(
             vertical=vertical,
             site_id=site_id
         ).inc()
     elif surprise >= 0.5:
-        # Exploration Jackpot: Model was WAY too pessimistic
         surprise_exploration_jackpots.labels(
             vertical=vertical,
             site_id=site_id
         ).inc()
     elif -0.1 <= surprise <= 0.1:
-        # Calibration Zone: Model is accurate
         surprise_calibrated_total.labels(
             vertical=vertical,
             site_id=site_id
         ).inc()
+    
+    # 2. Log the high-cardinality "Autopsy" data (Loki/Mongo)
+    # This is where page_id lives for debugging
+    logger.info(
+        "Surprise Event",
+        extra={
+            "page_id": page_id,  # HIGH cardinality — logs only
+            "site_id": site_id,
+            "vertical": vertical,
+            "actual": actual_reward,
+            "predicted": pred_reward,
+            "diff": surprise
+        }
+    )
 
 
-def record_reward(page_id: str, outcome: str):
-    """Record a bandit reward event."""
-    bandit_reward_total.labels(page_id=page_id, outcome=outcome).inc()
+def record_reward(site_id: str, outcome: str):
+    """Record a bandit reward event (low cardinality)."""
+    bandit_reward_total.labels(site_id=site_id, outcome=outcome).inc()
 
 
 def record_drift(cluster_id: str, magnitude: float):
