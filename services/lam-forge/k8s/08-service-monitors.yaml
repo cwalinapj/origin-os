@@ -1,0 +1,194 @@
+# =============================================================================
+# SERVICE MONITORS — Prometheus Operator Integration
+# =============================================================================
+# Enables dynamic discovery of metrics endpoints as pods scale
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ad-engine-monitor
+  namespace: ad-engine-prod
+  labels:
+    release: prometheus-stack  # Must match Prometheus Operator's serviceMonitorSelector
+    app: ad-engine
+spec:
+  selector:
+    matchLabels:
+      prometheus-scrape: "true"
+  namespaceSelector:
+    matchNames:
+      - ad-engine-prod
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 15s
+    scrapeTimeout: 10s
+
+---
+# -----------------------------------------------------------------------------
+# ServiceMonitor for Router
+# -----------------------------------------------------------------------------
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: router-monitor
+  namespace: ad-engine-prod
+  labels:
+    release: prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: bandit-router
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
+
+---
+# -----------------------------------------------------------------------------
+# ServiceMonitor for LAM Services
+# -----------------------------------------------------------------------------
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: lam-monitor
+  namespace: ad-engine-prod
+  labels:
+    release: prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      component: inference
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
+
+---
+# -----------------------------------------------------------------------------
+# ServiceMonitor for Governor
+# -----------------------------------------------------------------------------
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: governor-monitor
+  namespace: ad-engine-prod
+  labels:
+    release: prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: governor
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
+
+---
+# =============================================================================
+# PROMETHEUS RULES — Alerts & Recording Rules
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ad-engine-rules
+  namespace: ad-engine-prod
+  labels:
+    release: prometheus-stack
+spec:
+  groups:
+  # ---------------------------------------------------------------------------
+  # Recording Rules — Pre-compute expensive queries
+  # ---------------------------------------------------------------------------
+  - name: ad-engine-recording
+    interval: 30s
+    rules:
+    # 95th percentile surprise across all verticals
+    - record: lam:surprise_p95:by_vertical
+      expr: histogram_quantile(0.95, sum(rate(lam_surprise_delta_bucket[5m])) by (le, vertical))
+    
+    # Global drift magnitude (for FORCE_REEXPLORE)
+    - record: lam:global_drift:magnitude
+      expr: max(global_neural_drift_magnitude)
+    
+    # Router decision latency p99
+    - record: router:latency_p99:seconds
+      expr: histogram_quantile(0.99, sum(rate(router_decision_latency_seconds_bucket[5m])) by (le))
+    
+    # Thompson Sampling reward rate by page
+    - record: bandit:reward_rate:by_page
+      expr: sum(rate(bandit_reward_total{outcome="conversion"}[5m])) by (page_id) / sum(rate(bandit_reward_total[5m])) by (page_id)
+
+  # ---------------------------------------------------------------------------
+  # Alert Rules
+  # ---------------------------------------------------------------------------
+  - name: ad-engine-alerts
+    rules:
+    # High surprise = LAM hallucinating
+    - alert: LAMHighSurprise
+      expr: lam:surprise_p95:by_vertical > 0.5
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High surprise delta in {{ $labels.vertical }}"
+        description: "LAM surprise p95 is {{ $value | printf \"%.2f\" }}, indicating possible hallucination"
+    
+    # Global neural drift = market shift
+    - alert: GlobalNeuralDrift
+      expr: lam:global_drift:magnitude > 0.15
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Global neural drift detected"
+        description: "Drift magnitude {{ $value | printf \"%.2f\" }} exceeds threshold. Consider FORCE_REEXPLORE."
+    
+    # Router latency = circuit breaker territory
+    - alert: RouterHighLatency
+      expr: router:latency_p99:seconds > 0.15
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Router latency exceeds 150ms threshold"
+        description: "P99 latency is {{ $value | printf \"%.3f\" }}s. Circuit breaker may trigger."
+    
+    # LAM accuracy degradation
+    - alert: LAMAccuracyDrop
+      expr: lam_offline_accuracy < 0.70
+      for: 30m
+      labels:
+        severity: warning
+      annotations:
+        summary: "LAM offline accuracy below 70%"
+        description: "Accuracy is {{ $value | printf \"%.2f\" }}. Model may need retraining."
+    
+    # LoA downgrade event
+    - alert: LoADowngrade
+      expr: increase(loa_downgrade_total[1h]) > 0
+      labels:
+        severity: info
+      annotations:
+        summary: "LoA downgrade occurred for {{ $labels.vertical }}"
+        description: "Vertical {{ $labels.vertical }} was downgraded due to safety trigger"
+    
+    # High error rate
+    - alert: HighErrorRate
+      expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.05
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Error rate exceeds 5%"
+        description: "Current error rate is {{ $value | printf \"%.2f\" }}"
+    
+    # Thompson Sampling arm starvation
+    - alert: BanditArmStarvation
+      expr: min(bandit_arm_samples) by (site_id) < 10
+      for: 1h
+      labels:
+        severity: warning
+      annotations:
+        summary: "Thompson Sampling arm starvation"
+        description: "Site {{ $labels.site_id }} has arms with < 10 samples"

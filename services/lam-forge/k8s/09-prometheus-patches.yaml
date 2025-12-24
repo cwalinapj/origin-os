@@ -1,0 +1,137 @@
+# =============================================================================
+# POD LABEL PATCHES — Enable Prometheus Scraping
+# =============================================================================
+# Apply these patches to add prometheus-scrape labels to existing deployments
+
+# Patch Router
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bandit-router
+  namespace: ad-engine-prod
+spec:
+  template:
+    metadata:
+      labels:
+        prometheus-scrape: "true"
+    spec:
+      containers:
+      - name: router
+        ports:
+        - name: http
+          containerPort: 8024
+        - name: metrics
+          containerPort: 8024  # Same port, /metrics endpoint
+
+---
+# Patch LAM Inference
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lam-inference
+  namespace: ad-engine-prod
+spec:
+  template:
+    metadata:
+      labels:
+        prometheus-scrape: "true"
+    spec:
+      containers:
+      - name: inference
+        ports:
+        - name: http
+          containerPort: 8060
+        - name: metrics
+          containerPort: 8060
+
+---
+# Patch Governor
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: governor
+  namespace: ad-engine-prod
+spec:
+  template:
+    metadata:
+      labels:
+        prometheus-scrape: "true"
+    spec:
+      containers:
+      - name: governor
+        ports:
+        - name: http
+          containerPort: 8120
+        - name: metrics
+          containerPort: 8120
+
+---
+# Patch GAds Sync
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gads-sync
+  namespace: ad-engine-prod
+spec:
+  template:
+    metadata:
+      labels:
+        prometheus-scrape: "true"
+    spec:
+      containers:
+      - name: sync
+        ports:
+        - name: http
+          containerPort: 8070
+        - name: metrics
+          containerPort: 8070
+
+---
+# =============================================================================
+# RBAC — Prometheus Service Account Permissions
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: prometheus-scraper
+  namespace: ad-engine-prod
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: prometheus-scraper-binding
+  namespace: ad-engine-prod
+subjects:
+- kind: ServiceAccount
+  name: prometheus-k8s  # Default Prometheus Operator SA
+  namespace: monitoring  # Or wherever your Prometheus is
+roleRef:
+  kind: Role
+  name: prometheus-scraper
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# =============================================================================
+# GRAFANA DASHBOARD CONFIGMAP
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: ad-engine-prod
+  labels:
+    grafana_dashboard: "1"
+data:
+  ad-engine-dashboard.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "title": "Autonomic Ad-Engine Dashboard",
+      "uid": "ad-engine-main",
+      "version": 1
+    }
