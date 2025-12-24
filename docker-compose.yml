@@ -45,6 +45,78 @@ services:
     restart: unless-stopped
 
   # ==========================================================================
+  # LAM FORGE — Training & Inference Engine
+  # ==========================================================================
+  lam-forge-training:
+    build: ./services/lam-forge
+    container_name: origin-lam-forge-training
+    command: python training_loop.py
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - MODEL_DIR=/models/lam
+      - BATCH_SIZE=32
+      - LEARNING_RATE=1e-4
+    volumes:
+      - lam-models:/models/lam
+      - lam-training-data:/data/lam
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  lam-forge-inference:
+    build: ./services/lam-forge
+    container_name: origin-lam-forge-inference
+    ports:
+      - "8060:8060"
+    command: python -m uvicorn inference_spawner:app --host 0.0.0.0 --port 8060
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - CONTAINER_POOL_SIZE=10
+      - CONTAINER_TTL_SECONDS=300
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - lam-models:/models/lam:ro
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  lam-forge-gads:
+    build: ./services/lam-forge
+    container_name: origin-lam-forge-gads
+    ports:
+      - "8070:8070"
+    command: python -m uvicorn gads_deployment:app --host 0.0.0.0 --port 8070
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - GOOGLE_ADS_CONFIG=/credentials/google-ads.yaml
+      - BATCH_INTERVAL=900
+    volumes:
+      - ./credentials:/credentials:ro
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # ==========================================================================
+  # REDIS — State Store for LAM System
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: origin-redis
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  # ==========================================================================
   # TEMPLATE GEN — Next.js Device-Specific Templates
   # ==========================================================================
   template-gen:
@@ -77,6 +149,7 @@ services:
     environment:
       - GTM_CONTAINER_ID=${GTM_CONTAINER_ID:-}
       - LAM_ROUTER_URL=http://lam-router:8000
+      - LAM_FORGE_URL=http://lam-forge-inference:8060
       - GA_FORWARD=${GA_FORWARD:-true}
     volumes:
       - gtm-data:/data/gtm
@@ -95,9 +168,12 @@ services:
     environment:
       - HAILO_ENABLED=${HAILO_ENABLED:-false}
       - DECISION_TIMEOUT_MS=100
+      - REDIS_URL=redis://redis:6379
     volumes:
       - lam-data:/data/lam
       - lam-models:/models/lam
+    depends_on:
+      - redis
     restart: unless-stopped
 
   # ==========================================================================
@@ -193,6 +269,7 @@ services:
       - WEB_SCRAPER_URL=http://web-scraper:8000
       - GTM_INTERCEPT_URL=http://gtm-intercept:8000
       - LAM_ROUTER_URL=http://lam-router:8000
+      - LAM_FORGE_URL=http://lam-forge-inference:8060
       - LAM_EXPERIMENT_URL=http://lam-experiment:8000
       - DEVICE_ROUTER_URL=http://device-router:8000
       - TEMPLATE_GEN_URL=http://template-gen:8000
@@ -213,6 +290,7 @@ services:
       - lam-experiment
       - device-router
       - falkordb
+      - lam-forge-inference
     restart: unless-stopped
 
   # ==========================================================================
@@ -267,6 +345,7 @@ services:
       - WEB_SCRAPER_URL=http://web-scraper:8000
       - GTM_INTERCEPT_URL=http://gtm-intercept:8000
       - LAM_ROUTER_URL=http://lam-router:8000
+      - LAM_FORGE_URL=http://lam-forge-inference:8060
       - LAM_EXPERIMENT_URL=http://lam-experiment:8000
       - DEVICE_ROUTER_URL=http://device-router:8000
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
@@ -372,6 +451,58 @@ services:
       - falkordb-data:/data
     restart: unless-stopped
 
+  # ==========================================================================
+  # COMMERCE MCP — Headless E-Commerce Integration
+  # ==========================================================================
+  commerce:
+    build: ./services/commerce-mcp
+    container_name: origin-commerce
+    ports:
+      - "8021:8000"
+    environment:
+      - SHOPIFY_STORE_DOMAIN=${SHOPIFY_STORE_DOMAIN:-}
+      - SHOPIFY_STOREFRONT_TOKEN=${SHOPIFY_STOREFRONT_TOKEN:-}
+      - MEDUSA_URL=${MEDUSA_URL:-http://medusa:9000}
+      - SALEOR_URL=${SALEOR_URL:-}
+      - BIGCOMMERCE_STORE_HASH=${BIGCOMMERCE_STORE_HASH:-}
+      - BIGCOMMERCE_ACCESS_TOKEN=${BIGCOMMERCE_ACCESS_TOKEN:-}
+      - SWELL_STORE_ID=${SWELL_STORE_ID:-}
+      - SWELL_PUBLIC_KEY=${SWELL_PUBLIC_KEY:-}
+    volumes:
+      - commerce-data:/data/commerce
+    restart: unless-stopped
+
+  # ==========================================================================
+  # MONITORING — Prometheus & Grafana
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: origin-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./services/lam-forge/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./services/lam-forge/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: origin-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./services/lam-forge/monitoring/lam_dashboard.json:/var/lib/grafana/dashboards/lam_dashboard.json:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   # Core
   mcp-data:
@@ -424,39 +555,29 @@ volumes:
     name: origin-lam-data
   lam-models:
     name: origin-lam-models
+  lam-training-data:
+    name: origin-lam-training-data
   
-  # New: Device Routing + Experiments
+  # Redis
+  redis-data:
+    name: origin-redis-data
+  
+  # Device Routing + Experiments
   device-router-data:
     name: origin-device-router-data
   experiment-data:
     name: origin-experiment-data
   image-compare-data:
     name: origin-image-compare-data
-
   commerce-data:
     name: origin-commerce-data
+
+  # Monitoring
+  prometheus-data:
+    name: origin-prometheus-data
+  grafana-data:
+    name: origin-grafana-data
 
 networks:
   default:
     name: origin-network
-
-  # ==========================================================================
-  # COMMERCE MCP — Headless E-Commerce Integration
-  # ==========================================================================
-  commerce:
-    build: ./services/commerce-mcp
-    container_name: origin-commerce
-    ports:
-      - "8021:8000"
-    environment:
-      - SHOPIFY_STORE_DOMAIN=${SHOPIFY_STORE_DOMAIN:-}
-      - SHOPIFY_STOREFRONT_TOKEN=${SHOPIFY_STOREFRONT_TOKEN:-}
-      - MEDUSA_URL=${MEDUSA_URL:-http://medusa:9000}
-      - SALEOR_URL=${SALEOR_URL:-}
-      - BIGCOMMERCE_STORE_HASH=${BIGCOMMERCE_STORE_HASH:-}
-      - BIGCOMMERCE_ACCESS_TOKEN=${BIGCOMMERCE_ACCESS_TOKEN:-}
-      - SWELL_STORE_ID=${SWELL_STORE_ID:-}
-      - SWELL_PUBLIC_KEY=${SWELL_PUBLIC_KEY:-}
-    volumes:
-      - commerce-data:/data/commerce
-    restart: unless-stopped

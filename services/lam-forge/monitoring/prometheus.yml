@@ -1,0 +1,44 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # LAM Forge Services
+  - job_name: 'lam-forge-inference'
+    static_configs:
+      - targets: ['lam-forge-inference:8060']
+    metrics_path: /metrics
+
+  - job_name: 'lam-forge-gads'
+    static_configs:
+      - targets: ['lam-forge-gads:8070']
+    metrics_path: /metrics
+
+  - job_name: 'lam-router'
+    static_configs:
+      - targets: ['lam-router:8000']
+    metrics_path: /metrics
+
+  - job_name: 'gtm-intercept'
+    static_configs:
+      - targets: ['gtm-intercept:8000']
+    metrics_path: /metrics
+
+  # Core Services
+  - job_name: 'auto-claude'
+    static_configs:
+      - targets: ['auto-claude:8000']
+    metrics_path: /metrics
+
+  - job_name: 'codex'
+    static_configs:
+      - targets: ['codex:8000']
+    metrics_path: /metrics
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']

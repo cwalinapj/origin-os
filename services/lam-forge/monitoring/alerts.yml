@@ -1,0 +1,115 @@
+groups:
+  - name: lam_surprise_alerts
+    interval: 30s
+    rules:
+      # Alert when surprise levels spike globally
+      - alert: GlobalSurpriseSpike
+        expr: avg(lam_surprise_magnitude) > 3.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LAM surprise levels elevated"
+          description: "Average surprise magnitude {{ $value }} exceeds threshold. Model may need retraining."
+      
+      # Alert on confident failure rate
+      - alert: HighInversionRate
+        expr: rate(lam_inversions_total[15m]) > 0.1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High confident failure rate"
+          description: "{{ $value }} inversions/sec indicates systematic model miscalibration."
+      
+      # Alert when penalty weights are maxed out
+      - alert: PenaltyWeightSaturation
+        expr: avg(lam_penalty_weight) > 4.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Penalty weights near maximum"
+          description: "Average penalty {{ $value }} suggests immature verticals or drift."
+
+  - name: convergence_alerts
+    rules:
+      - alert: StuckInExploration
+        expr: lam_mode == 0 and lam_samples_total > 2000
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Site stuck in exploration mode"
+          description: "Site {{ $labels.site_id }} has {{ $value }} samples but hasn't converged."
+      
+      - alert: SlowConvergence
+        expr: rate(lam_samples_total[1h]) < 10
+        for: 2h
+        labels:
+          severity: info
+        annotations:
+          summary: "Low sample rate"
+          description: "Site {{ $labels.site_id }} is receiving low traffic for LAM training."
+
+  - name: container_alerts
+    rules:
+      - alert: HighContainerSpawnTime
+        expr: histogram_quantile(0.95, sum(rate(lam_container_spawn_seconds_bucket[5m])) by (le)) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow container spawning"
+          description: "p95 container spawn time is {{ $value }}s, exceeding 5s threshold."
+      
+      - alert: LowCacheHitRate
+        expr: |
+          sum(rate(lam_container_cache_hits_total[5m])) 
+          / (sum(rate(lam_container_cache_hits_total[5m])) + sum(rate(lam_container_cache_misses_total[5m]))) 
+          < 0.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low container cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }}, consider increasing pool size."
+
+  - name: gads_alerts
+    rules:
+      - alert: GAdsAPIErrors
+        expr: rate(gads_promotions_total{status="error"}[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Google Ads API errors"
+          description: "High error rate in Google Ads API calls. Check credentials and quota."
+      
+      - alert: BehavioralUploadBacklog
+        expr: redis_stream_length{stream=~"behavioral_scores:.*"} > 5000
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Behavioral score upload backlog"
+          description: "{{ $value }} pending behavioral scores. May need to increase batch frequency."
+
+  - name: drift_alerts
+    rules:
+      - alert: GlobalDriftDetected
+        expr: lam_global_drift_score > 0.5
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Global behavioral drift detected"
+          description: "Global drift score is {{ $value }}. Consider triggering entropy injection."
+      
+      - alert: EntropyInjectionTriggered
+        expr: increase(lam_entropy_injections_total[1h]) > 0
+        labels:
+          severity: info
+        annotations:
+          summary: "Entropy injection triggered"
+          description: "System injected entropy into {{ $labels.vertical }} vertical."

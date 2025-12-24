@@ -1,0 +1,28 @@
+# LAM Forge Dependencies
+# ======================
+
+# Core
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+
+# Async
+aiohttp>=3.9.0
+redis>=5.0.0
+
+# PyTorch (CPU by default, GPU version can be installed separately)
+torch>=2.1.0
+torchvision>=0.16.0
+
+# Google Ads API
+google-ads>=23.0.0
+
+# Docker SDK
+docker>=7.0.0
+
+# Prometheus metrics
+prometheus-client>=0.19.0
+
+# Utilities
+numpy>=1.26.0
+python-dotenv>=1.0.0
