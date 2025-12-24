@@ -1,0 +1,289 @@
+version: '3.8'
+
+# =============================================================================
+# FIRST-1000 REGIME — Multi-Agent LLM Stack
+# =============================================================================
+# Each agent has unique: GTAG, S3 Bucket, Vector Namespace
+# 
+# Usage:
+#   docker compose --env-file output/.env.agents -f docker-compose.agents.yml up -d
+#
+# Verify:
+#   docker exec lam-claude printenv | grep S3
+# =============================================================================
+
+# Common configuration for all agents
+x-agent-base: &agent-base
+  image: origin-os/lam-agent:latest
+  build:
+    context: ./services/lam-forge
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  networks:
+    - ads-net
+  volumes:
+    - ./logs:/app/logs
+    - ./output:/app/config:ro
+  depends_on:
+    - redis
+    - mongo
+    - llm-gateway
+  environment:
+    # Shared infrastructure
+    - REDIS_URL=redis://redis:6379
+    - MONGO_URL=mongodb://mongo:27017
+    - LLM_GATEWAY_URL=http://llm-gateway:8200
+    - PINECONE_API_KEY=${PINECONE_API_KEY}
+    - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-origin-os-lam}
+    - GA_API_KEY=${GA_API_KEY}
+
+services:
+  # ===========================================================================
+  # INFRASTRUCTURE
+  # ===========================================================================
+  
+  redis:
+    image: redis:7-alpine
+    container_name: redis-state
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - ads-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  mongo:
+    image: mongo:7.0
+    container_name: mongo-dna
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - ads-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  llm-gateway:
+    build:
+      context: ./services/llm-gateway
+      dockerfile: Dockerfile
+    container_name: llm-gateway
+    ports:
+      - "8200:8200"
+    environment:
+      - VERCEL_API_KEY=${VERCEL_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    networks:
+      - ads-net
+
+  # ===========================================================================
+  # CLAUDE AGENT — Anthropic
+  # Nuanced, brand-safe copy generation
+  # ===========================================================================
+  claude-agent:
+    <<: *agent-base
+    container_name: lam-claude
+    environment:
+      - AGENT_NAME=claude
+      - MODEL_ID=${CLAUDE_MODEL_ID}
+      - GTAG_ID=${CLAUDE_GTAG_ID}
+      - S3_BUCKET=${CLAUDE_S3_BUCKET}
+      - S3_URL=${CLAUDE_S3_URL}
+      - VECTOR_NAMESPACE=${CLAUDE_VECTOR_NAMESPACE}
+      - VECTOR_DB_URL=${CLAUDE_VECTOR_DB_URL}
+      # Provider-specific
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # Shared (inherited from x-agent-base)
+      - REDIS_URL=redis://redis:6379
+      - MONGO_URL=mongodb://mongo:27017
+      - LLM_GATEWAY_URL=http://llm-gateway:8200
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - GA_API_KEY=${GA_API_KEY}
+
+  # ===========================================================================
+  # GPT-4 AGENT — OpenAI
+  # Versatile, creative generation
+  # ===========================================================================
+  gpt4-agent:
+    <<: *agent-base
+    container_name: lam-gpt4
+    environment:
+      - AGENT_NAME=gpt4
+      - MODEL_ID=${GPT4_MODEL_ID}
+      - GTAG_ID=${GPT4_GTAG_ID}
+      - S3_BUCKET=${GPT4_S3_BUCKET}
+      - S3_URL=${GPT4_S3_URL}
+      - VECTOR_NAMESPACE=${GPT4_VECTOR_NAMESPACE}
+      - VECTOR_DB_URL=${GPT4_VECTOR_DB_URL}
+      # Provider-specific
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # Shared
+      - REDIS_URL=redis://redis:6379
+      - MONGO_URL=mongodb://mongo:27017
+      - LLM_GATEWAY_URL=http://llm-gateway:8200
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - GA_API_KEY=${GA_API_KEY}
+
+  # ===========================================================================
+  # GEMINI AGENT — Google
+  # Fast, multimodal generation
+  # ===========================================================================
+  gemini-agent:
+    <<: *agent-base
+    container_name: lam-gemini
+    environment:
+      - AGENT_NAME=gemini
+      - MODEL_ID=${GEMINI_MODEL_ID}
+      - GTAG_ID=${GEMINI_GTAG_ID}
+      - S3_BUCKET=${GEMINI_S3_BUCKET}
+      - S3_URL=${GEMINI_S3_URL}
+      - VECTOR_NAMESPACE=${GEMINI_VECTOR_NAMESPACE}
+      - VECTOR_DB_URL=${GEMINI_VECTOR_DB_URL}
+      # Provider-specific
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      # Shared
+      - REDIS_URL=redis://redis:6379
+      - MONGO_URL=mongodb://mongo:27017
+      - LLM_GATEWAY_URL=http://llm-gateway:8200
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - GA_API_KEY=${GA_API_KEY}
+
+  # ===========================================================================
+  # LLAMA AGENT — Meta (Local/Self-Hosted)
+  # Open-source, GPU-accelerated
+  # ===========================================================================
+  llama-agent:
+    <<: *agent-base
+    container_name: lam-llama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - AGENT_NAME=llama
+      - MODEL_ID=${LLAMA_MODEL_ID}
+      - GTAG_ID=${LLAMA_GTAG_ID}
+      - S3_BUCKET=${LLAMA_S3_BUCKET}
+      - S3_URL=${LLAMA_S3_URL}
+      - VECTOR_NAMESPACE=${LLAMA_VECTOR_NAMESPACE}
+      - VECTOR_DB_URL=${LLAMA_VECTOR_DB_URL}
+      # Local inference (no API key needed)
+      - LOCAL_MODEL_PATH=/models/llama
+      # Shared
+      - REDIS_URL=redis://redis:6379
+      - MONGO_URL=mongodb://mongo:27017
+      - LLM_GATEWAY_URL=http://llm-gateway:8200
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - GA_API_KEY=${GA_API_KEY}
+    volumes:
+      - ./logs:/app/logs
+      - ./output:/app/config:ro
+      - llama-models:/models/llama
+
+  # ===========================================================================
+  # MISTRAL AGENT — Mistral AI
+  # European, multilingual generation
+  # ===========================================================================
+  mistral-agent:
+    <<: *agent-base
+    container_name: lam-mistral
+    environment:
+      - AGENT_NAME=mistral
+      - MODEL_ID=${MISTRAL_MODEL_ID}
+      - GTAG_ID=${MISTRAL_GTAG_ID}
+      - S3_BUCKET=${MISTRAL_S3_BUCKET}
+      - S3_URL=${MISTRAL_S3_URL}
+      - VECTOR_NAMESPACE=${MISTRAL_VECTOR_NAMESPACE}
+      - VECTOR_DB_URL=${MISTRAL_VECTOR_DB_URL}
+      # Provider-specific
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      # Shared
+      - REDIS_URL=redis://redis:6379
+      - MONGO_URL=mongodb://mongo:27017
+      - LLM_GATEWAY_URL=http://llm-gateway:8200
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - GA_API_KEY=${GA_API_KEY}
+
+  # ===========================================================================
+  # ROUTER — Thompson Sampling Gateway
+  # ===========================================================================
+  router:
+    build:
+      context: ./services/router
+      dockerfile: Dockerfile
+    container_name: router-api
+    ports:
+      - "8024:8024"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - MONGO_URL=mongodb://mongo:27017
+      - LLM_GATEWAY_URL=http://llm-gateway:8200
+      # Agent endpoints for routing
+      - CLAUDE_AGENT_URL=http://lam-claude:8060
+      - GPT4_AGENT_URL=http://lam-gpt4:8060
+      - GEMINI_AGENT_URL=http://lam-gemini:8060
+      - LLAMA_AGENT_URL=http://lam-llama:8060
+      - MISTRAL_AGENT_URL=http://lam-mistral:8060
+    depends_on:
+      - redis
+      - mongo
+      - claude-agent
+      - gpt4-agent
+      - gemini-agent
+      - llama-agent
+      - mistral-agent
+    networks:
+      - ads-net
+
+  # ===========================================================================
+  # MONITORING
+  # ===========================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - ads-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./services/lam-forge/k8s/grafana-control-plane.json:/var/lib/grafana/dashboards/control-plane.json
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    ports:
+      - "3000:3000"
+    networks:
+      - ads-net
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  redis-data:
+  mongo-data:
+  llama-models:
+  prometheus-data:
+  grafana-data:
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  ads-net:
+    driver: bridge
