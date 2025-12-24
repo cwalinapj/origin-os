@@ -3,30 +3,31 @@
 PROMETHEUS METRICS — Instrumented Observability
 ===============================================
 
-Exposes the metrics required for the Surprise Heatmap and Global Drift detection.
+Exposes metrics for the Surprise Heatmap and Global Drift detection.
 
-Metrics:
-- lam_surprise_delta: Histogram for surprise distribution (Inversion Logic)
-- bandit_reward_total: Counter for Thompson Sampling performance
-- global_neural_drift_magnitude: Gauge for FORCE_REEXPLORE triggers
-- router_decision_latency_seconds: Histogram for Circuit Breaker monitoring
+CRITICAL: Surprise buckets are SYMMETRIC around zero to distinguish:
+- Under-performance Surprise (negative): Model was too optimistic
+- Over-performance Surprise (positive): Model was too pessimistic
 
-All services must expose /metrics endpoint for Prometheus scraping.
+Bucket interpretation:
+- Near-Zero [-0.1, 0.1]: Calibration Zone — LAM is high-fidelity
+- Extreme Negative [-1.0, -0.5]: Critical Failures — trigger Inversion
+- Extreme Positive [0.5, 1.0]: Exploration Jackpots — Knowledge Mesh candidates
 """
 
 from prometheus_client import (
     Counter, Gauge, Histogram, Info,
     generate_latest, CONTENT_TYPE_LATEST,
-    CollectorRegistry, multiprocess, REGISTRY
+    CollectorRegistry, REGISTRY
 )
 from functools import wraps
 import time
+import asyncio
 
 # =============================================================================
 # REGISTRY
 # =============================================================================
 
-# Use default registry for single-process, multiprocess for gunicorn
 try:
     from prometheus_client import multiprocess
     registry = CollectorRegistry()
@@ -35,14 +36,28 @@ except:
     registry = REGISTRY
 
 # =============================================================================
+# SYMMETRIC SURPRISE BUCKETS
+# =============================================================================
+# These buckets center around 0.0 to enable directional analysis:
+# - Negative = Model overestimated (Critical Failures)
+# - Positive = Model underestimated (Exploration Jackpots)
+
+SURPRISE_BUCKETS = (
+    -1.0, -0.5, -0.25, -0.1,  # Under-performance (model too optimistic)
+    0.0,                       # Perfect calibration
+    0.1, 0.25, 0.5, 1.0        # Over-performance (model too pessimistic)
+)
+
+# =============================================================================
 # LAM SURPRISE METRICS — Feeds the Surprise Heatmap
 # =============================================================================
 
 lam_surprise_delta = Histogram(
     'lam_surprise_delta',
-    'Distribution of surprise deltas (predicted vs actual reward)',
+    'Distribution of surprise deltas (actual - predicted reward). '
+    'Symmetric buckets enable directional analysis around zero.',
     labelnames=['vertical', 'site_id'],
-    buckets=(-1.0, -0.5, -0.3, -0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0),
+    buckets=SURPRISE_BUCKETS,
     registry=registry
 )
 
@@ -57,6 +72,28 @@ lam_calibration_error = Gauge(
     'lam_calibration_error',
     'Mean absolute calibration error',
     labelnames=['vertical'],
+    registry=registry
+)
+
+# Surprise zone counters for alerting
+surprise_critical_failures = Counter(
+    'surprise_critical_failures_total',
+    'Observations in extreme negative buckets [-1.0, -0.5]',
+    labelnames=['vertical', 'site_id'],
+    registry=registry
+)
+
+surprise_exploration_jackpots = Counter(
+    'surprise_exploration_jackpots_total',
+    'Observations in extreme positive buckets [0.5, 1.0]',
+    labelnames=['vertical', 'site_id'],
+    registry=registry
+)
+
+surprise_calibrated_total = Counter(
+    'surprise_calibrated_total',
+    'Observations in calibration zone [-0.1, 0.1]',
+    labelnames=['vertical', 'site_id'],
     registry=registry
 )
 
@@ -253,6 +290,77 @@ container_lifetime_seconds = Histogram(
 )
 
 # =============================================================================
+# SURPRISE RECORDING FUNCTION
+# =============================================================================
+
+def record_surprise(
+    vertical: str,
+    site_id: str,
+    predicted_reward: float,
+    actual_reward: float
+):
+    """
+    Record a surprise delta for the Heatmap.
+    
+    CRITICAL: surprise = actual - predicted (signed, directional)
+    
+    - Negative surprise: Model was too optimistic (Critical Failure)
+    - Positive surprise: Model was too pessimistic (Exploration Jackpot)
+    - Near-zero: Model is well-calibrated
+    
+    Args:
+        vertical: Site vertical (ecommerce, b2b, saas)
+        site_id: Unique site identifier
+        predicted_reward: What the LAM predicted
+        actual_reward: What actually happened
+    """
+    surprise = actual_reward - predicted_reward
+    
+    # Record to histogram
+    lam_surprise_delta.labels(
+        vertical=vertical,
+        site_id=site_id
+    ).observe(surprise)
+    
+    # Track zone counters for alerting
+    if surprise <= -0.5:
+        # Critical Failure: Model was WAY too optimistic
+        surprise_critical_failures.labels(
+            vertical=vertical,
+            site_id=site_id
+        ).inc()
+    elif surprise >= 0.5:
+        # Exploration Jackpot: Model was WAY too pessimistic
+        surprise_exploration_jackpots.labels(
+            vertical=vertical,
+            site_id=site_id
+        ).inc()
+    elif -0.1 <= surprise <= 0.1:
+        # Calibration Zone: Model is accurate
+        surprise_calibrated_total.labels(
+            vertical=vertical,
+            site_id=site_id
+        ).inc()
+
+
+def record_reward(page_id: str, outcome: str):
+    """Record a bandit reward event."""
+    bandit_reward_total.labels(page_id=page_id, outcome=outcome).inc()
+
+
+def record_drift(cluster_id: str, magnitude: float):
+    """Record neural drift magnitude."""
+    global_neural_drift_magnitude.labels(cluster_id=cluster_id).set(magnitude)
+
+
+def record_loa(vertical: str, level: int, samples: int, accuracy: float):
+    """Record LoA metrics."""
+    loa_current_level.labels(vertical=vertical).set(level)
+    loa_samples_total.labels(vertical=vertical).set(samples)
+    lam_offline_accuracy.labels(vertical=vertical).set(accuracy)
+
+
+# =============================================================================
 # HELPER DECORATORS
 # =============================================================================
 
@@ -287,34 +395,10 @@ def track_latency(metric, labels_fn=None):
     return decorator
 
 
-def record_surprise(vertical: str, site_id: str, predicted: float, actual: float):
-    """Record a surprise delta for the heatmap."""
-    surprise = abs(predicted - actual)
-    lam_surprise_delta.labels(vertical=vertical, site_id=site_id).observe(surprise)
-
-
-def record_reward(page_id: str, outcome: str):
-    """Record a bandit reward event."""
-    bandit_reward_total.labels(page_id=page_id, outcome=outcome).inc()
-
-
-def record_drift(cluster_id: str, magnitude: float):
-    """Record neural drift magnitude."""
-    global_neural_drift_magnitude.labels(cluster_id=cluster_id).set(magnitude)
-
-
-def record_loa(vertical: str, level: int, samples: int, accuracy: float):
-    """Record LoA metrics."""
-    loa_current_level.labels(vertical=vertical).set(level)
-    loa_samples_total.labels(vertical=vertical).set(samples)
-    lam_offline_accuracy.labels(vertical=vertical).set(accuracy)
-
-
 # =============================================================================
 # FASTAPI INTEGRATION
 # =============================================================================
 
-import asyncio
 from fastapi import Response
 
 
@@ -328,8 +412,6 @@ async def metrics_endpoint():
 
 def setup_metrics_route(app):
     """Add /metrics route to FastAPI app."""
-    from fastapi import FastAPI
-    
     @app.get("/metrics")
     async def metrics():
         return await metrics_endpoint()
