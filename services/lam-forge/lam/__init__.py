@@ -13,6 +13,9 @@ Training:
 
 Evaluation:
 - eval.replay: Counterfactual replay harness
+
+Governor:
+- governor.engine: Level of Autonomy controller
 """
 
 from lam.model import LAM, Encoder, PolicyHead
