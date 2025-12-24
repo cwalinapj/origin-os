@@ -1,0 +1,103 @@
+{
+  "version": "1.0.0",
+  "description": "Available tools and plugins for Origin OS LLM Agents",
+  "registry_endpoint": "http://tool-registry:8300",
+  
+  "how_to_use": {
+    "list_all_tools": "GET http://tool-registry:8300/tools",
+    "get_my_config": "GET http://tool-registry:8300/agent/{AGENT_NAME}/config",
+    "request_plugin": "POST http://tool-registry:8300/agent/{AGENT_NAME}/request",
+    "get_manifest": "GET http://tool-registry:8300/agent/{AGENT_NAME}/manifest"
+  },
+
+  "categories": {
+    "core": "Always available, no plugin needed",
+    "plugin": "Requires explicit enable + API key",
+    "local": "Runs locally, no external API",
+    "experimental": "Beta features, may be unstable"
+  },
+
+  "tools": {
+    "core": [
+      {"id": "llm_gateway", "name": "LLM Gateway", "description": "Multi-provider LLM routing", "endpoint": "http://llm-gateway:8200"},
+      {"id": "vector_db", "name": "Pinecone Vector DB", "description": "Semantic search", "env": "PINECONE_API_KEY"},
+      {"id": "s3_storage", "name": "AWS S3", "description": "Artifact storage", "env": "AWS_ACCESS_KEY_ID"},
+      {"id": "redis_cache", "name": "Redis", "description": "Cache and state", "endpoint": "redis://redis:6379"},
+      {"id": "mongo_store", "name": "MongoDB", "description": "Document storage", "endpoint": "mongodb://mongo:27017"}
+    ],
+
+    "llm_providers": [
+      {"id": "anthropic", "plugin_id": "llm.anthropic", "env": "ANTHROPIC_API_KEY"},
+      {"id": "openai", "plugin_id": "llm.openai", "env": "OPENAI_API_KEY"},
+      {"id": "google_ai", "plugin_id": "llm.google", "env": "GOOGLE_API_KEY"},
+      {"id": "mistral", "plugin_id": "llm.mistral", "env": "MISTRAL_API_KEY"}
+    ],
+
+    "search": [
+      {"id": "web_search", "plugin_id": "search.serp", "env": "SERPAPI_KEY"},
+      {"id": "tavily_search", "plugin_id": "search.tavily", "env": "TAVILY_API_KEY"},
+      {"id": "exa_search", "plugin_id": "search.exa", "env": "EXA_API_KEY"},
+      {"id": "perplexity", "plugin_id": "search.perplexity", "env": "PERPLEXITY_API_KEY"}
+    ],
+
+    "browser": [
+      {"id": "browser_use", "plugin_id": "browser.use", "env": "BROWSERBASE_API_KEY"},
+      {"id": "playwright", "plugin_id": "browser.playwright", "local": true},
+      {"id": "firecrawl", "plugin_id": "scrape.firecrawl", "env": "FIRECRAWL_API_KEY"},
+      {"id": "apify", "plugin_id": "scrape.apify", "env": "APIFY_TOKEN"}
+    ],
+
+    "code": [
+      {"id": "github", "plugin_id": "code.github", "env": "GITHUB_TOKEN"},
+      {"id": "code_interpreter", "plugin_id": "code.interpreter", "local": true},
+      {"id": "e2b_sandbox", "plugin_id": "code.e2b", "env": "E2B_API_KEY"}
+    ],
+
+    "analytics": [
+      {"id": "google_analytics", "plugin_id": "analytics.ga", "env": "GA_API_KEY"},
+      {"id": "google_ads", "plugin_id": "ads.google", "env": "GOOGLE_ADS_DEVELOPER_TOKEN"},
+      {"id": "bigquery", "plugin_id": "data.bigquery", "env": "GOOGLE_APPLICATION_CREDENTIALS"}
+    ],
+
+    "communication": [
+      {"id": "slack", "plugin_id": "comms.slack", "env": "SLACK_BOT_TOKEN"},
+      {"id": "discord", "plugin_id": "comms.discord", "env": "DISCORD_BOT_TOKEN"},
+      {"id": "email_sendgrid", "plugin_id": "comms.sendgrid", "env": "SENDGRID_API_KEY"},
+      {"id": "twilio", "plugin_id": "comms.twilio", "env": "TWILIO_AUTH_TOKEN"}
+    ],
+
+    "image_media": [
+      {"id": "dalle", "plugin_id": "image.dalle", "env": "OPENAI_API_KEY"},
+      {"id": "stability", "plugin_id": "image.stability", "env": "STABILITY_API_KEY"},
+      {"id": "replicate", "plugin_id": "ml.replicate", "env": "REPLICATE_API_TOKEN"},
+      {"id": "eleven_labs", "plugin_id": "audio.elevenlabs", "env": "ELEVEN_LABS_API_KEY"}
+    ],
+
+    "documents": [
+      {"id": "notion", "plugin_id": "docs.notion", "env": "NOTION_API_KEY"},
+      {"id": "airtable", "plugin_id": "data.airtable", "env": "AIRTABLE_API_KEY"},
+      {"id": "google_docs", "plugin_id": "docs.google", "env": "GOOGLE_APPLICATION_CREDENTIALS"}
+    ],
+
+    "payments": [
+      {"id": "stripe", "plugin_id": "payments.stripe", "env": "STRIPE_SECRET_KEY"},
+      {"id": "shopify", "plugin_id": "commerce.shopify", "env": "SHOPIFY_ACCESS_TOKEN"}
+    ],
+
+    "mcp_servers": [
+      {"id": "mcp_filesystem", "plugin_id": "mcp.filesystem", "local": true},
+      {"id": "mcp_memory", "plugin_id": "mcp.memory", "local": true},
+      {"id": "mcp_sequential_thinking", "plugin_id": "mcp.thinking", "local": true},
+      {"id": "mcp_docker", "plugin_id": "mcp.docker", "local": true}
+    ]
+  },
+
+  "request_plugin": {
+    "endpoint": "POST /agent/{AGENT_NAME}/request",
+    "body": {
+      "tool_id": "string",
+      "reason": "string",
+      "priority": "low | normal | high | critical"
+    }
+  }
+}

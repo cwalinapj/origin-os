@@ -24,15 +24,19 @@ x-agent-base: &agent-base
   volumes:
     - ./logs:/app/logs
     - ./output:/app/config:ro
+    - ./config/tools-manifest.json:/app/tools-manifest.json:ro
   depends_on:
     - redis
     - mongo
     - llm-gateway
+    - tool-registry
   environment:
     # Shared infrastructure
     - REDIS_URL=redis://redis:6379
     - MONGO_URL=mongodb://mongo:27017
     - LLM_GATEWAY_URL=http://llm-gateway:8200
+    - TOOL_REGISTRY_URL=http://tool-registry:8300
+    - TOOLS_MANIFEST=/app/tools-manifest.json
     - PINECONE_API_KEY=${PINECONE_API_KEY}
     - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-origin-os-lam}
     - GA_API_KEY=${GA_API_KEY}
@@ -79,6 +83,33 @@ services:
     environment:
       - VERCEL_API_KEY=${VERCEL_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    networks:
+      - ads-net
+
+  # ===========================================================================
+  # TOOL REGISTRY — Discovery & Plugin Management
+  # ===========================================================================
+  tool-registry:
+    build:
+      context: ./services/tool-registry
+      dockerfile: Dockerfile
+    container_name: tool-registry
+    ports:
+      - "8300:8300"
+    volumes:
+      - ./config:/app/config:ro
+    environment:
+      # Pass all API keys so registry can check availability
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - SERPAPI_KEY=${SERPAPI_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      - EXA_API_KEY=${EXA_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
     networks:
       - ads-net
 
