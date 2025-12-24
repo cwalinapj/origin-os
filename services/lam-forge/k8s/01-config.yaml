@@ -1,0 +1,62 @@
+# =============================================================================
+# NAMESPACE & CONFIG
+# =============================================================================
+# Isolates the engine to its own namespace for resource quotas and network policies
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ad-engine-prod
+  labels:
+    app: autonomic-ad-engine
+    environment: production
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: engine-config
+  namespace: ad-engine-prod
+data:
+  # Data stores
+  REDIS_URL: "redis://redis-service:6379"
+  MONGO_URL: "mongodb://mongo-service:27017"
+  
+  # Divergence-gated evolution
+  DIVERGENCE_THRESHOLD: "0.07"
+  MIN_EVENTS: "50"
+  
+  # Neural drift detection
+  GLOBAL_DRIFT_THRESHOLD: "0.15"
+  
+  # Curriculum learning
+  CURRICULUM_STAGES: "4"
+  EPOCHS_PER_STAGE: "3"
+  
+  # LoA thresholds
+  LOA_SHADOW_SAMPLES: "100"
+  LOA_ADVISORY_ACCURACY: "0.70"
+  LOA_COPILOT_SAMPLES: "500"
+  LOA_COPILOT_ACCURACY: "0.80"
+  LOA_GOVERNOR_SAMPLES: "1000"
+  LOA_GOVERNOR_ACCURACY: "0.85"
+  
+  # Reward shaping weights
+  REWARD_CONVERSION: "0.5"
+  REWARD_ENGAGEMENT: "0.3"
+  REWARD_BOUNCE: "-0.2"
+  REWARD_DRIFT: "-0.1"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: engine-secrets
+  namespace: ad-engine-prod
+type: Opaque
+stringData:
+  # Google Ads API credentials (replace with actual values)
+  GOOGLE_ADS_DEVELOPER_TOKEN: "your-developer-token"
+  GOOGLE_ADS_CLIENT_ID: "your-client-id"
+  GOOGLE_ADS_CLIENT_SECRET: "your-client-secret"
+  GOOGLE_ADS_REFRESH_TOKEN: "your-refresh-token"

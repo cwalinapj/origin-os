@@ -1,0 +1,115 @@
+# =============================================================================
+# NETWORK POLICY — Hardened Isolation
+# =============================================================================
+# Strictly control egress to ensure landing page containers cannot reach
+# internal databases, only the public internet for tracking scripts
+
+# -----------------------------------------------------------------------------
+# Landing Page Isolation — Block Internal Network Access
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: landing-page-isolation
+  namespace: ad-engine-prod
+spec:
+  podSelector:
+    matchLabels:
+      role: landing-page-container
+  policyTypes:
+  - Egress
+  - Ingress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8      # Block internal network
+        - 172.16.0.0/12   # Block private range
+        - 192.168.0.0/16  # Block private range
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: bandit-router
+
+---
+# -----------------------------------------------------------------------------
+# Database Isolation — Only Internal Access
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: database-isolation
+  namespace: ad-engine-prod
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          component: routing
+    - podSelector:
+        matchLabels:
+          component: training
+    - podSelector:
+        matchLabels:
+          component: inference
+    - podSelector:
+        matchLabels:
+          component: control
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mongo-isolation
+  namespace: ad-engine-prod
+spec:
+  podSelector:
+    matchLabels:
+      app: mongo
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          component: training
+    - podSelector:
+        matchLabels:
+          component: inference
+
+---
+# -----------------------------------------------------------------------------
+# LAM Forge Isolation — GPU Node Only
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: forge-isolation
+  namespace: ad-engine-prod
+spec:
+  podSelector:
+    matchLabels:
+      app: lam-forge
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: governor
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    - podSelector:
+        matchLabels:
+          app: mongo
