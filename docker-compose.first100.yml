@@ -3,11 +3,6 @@ version: '3.8'
 # =============================================================================
 # FIRST-100 REGIME — Dynamic Container Mesh
 # =============================================================================
-# Deploys the complete A/B testing infrastructure:
-# - Router (Thompson Sampling gateway)
-# - Page Variants (A=Baseline, B=Challenger)
-# - Persistence (Redis, MongoDB)
-# - Intelligence (LAM Forge)
 
 services:
   # ===========================================================================
@@ -25,12 +20,11 @@ services:
       - MONGO_URL=mongodb://mongo:27017
       - DIVERGENCE_THRESHOLD=0.07
       - MIN_EVENTS=50
-      - GLOBAL_DRIFT_THRESHOLD=0.15
-      - LAM_INFERENCE_URL=http://lam-inference:8060
-      - GOVERNOR_URL=http://governor:8120
+      - LLM_GATEWAY_URL=http://llm-gateway:8200
     depends_on:
       - redis
       - mongo
+      - llm-gateway
     networks:
       - ads-net
     healthcheck:
@@ -40,7 +34,30 @@ services:
       retries: 3
 
   # ===========================================================================
-  # 2. FRONT PAGES — Variant A (Baseline) & Variant B (Challenger)
+  # 2. LLM GATEWAY — Multi-Provider Routing
+  # ===========================================================================
+  llm-gateway:
+    build:
+      context: ./services/llm-gateway
+      dockerfile: Dockerfile
+    container_name: llm-gateway
+    ports:
+      - "8200:8200"
+    environment:
+      # Vercel AI Gateway for general LLM ops
+      - VERCEL_API_KEY=${VERCEL_API_KEY}
+      # OpenRouter for copy/image generation (model self-selection)
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    networks:
+      - ads-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ===========================================================================
+  # 3. FRONT PAGES — Variant A (Baseline) & Variant B (Challenger)
   # ===========================================================================
   page-a:
     build:
@@ -52,7 +69,6 @@ services:
       - VARIANT_TYPE=control
       - GTAG_ID=${GTAG_ID_A:-GT-XXXXXXX}
       - ROUTER_URL=http://router:8024
-      - NEURAL_COLLECTOR_ENABLED=true
     depends_on:
       - router
     networks:
@@ -70,9 +86,7 @@ services:
       - VARIANT_TYPE=challenger
       - GTAG_ID=${GTAG_ID_B:-GT-YYYYYYY}
       - ROUTER_URL=http://router:8024
-      - NEURAL_COLLECTOR_ENABLED=true
       - MUTATION_SOURCE=llm
-      - MUTATION_MODEL=claude-sonnet
     depends_on:
       - router
     networks:
@@ -81,7 +95,7 @@ services:
       - "role=landing-page-container"
 
   # ===========================================================================
-  # 3. PERSISTENCE — Redis (Bandit Memory) & MongoDB (Session Store)
+  # 4. PERSISTENCE — Redis & MongoDB
   # ===========================================================================
   redis:
     image: redis:7-alpine
@@ -91,11 +105,6 @@ services:
       - redis-data:/data
     networks:
       - ads-net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 3
 
   mongo:
     image: mongo:7.0
@@ -104,14 +113,9 @@ services:
       - mongo-data:/data/db
     networks:
       - ads-net
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
 
   # ===========================================================================
-  # 4. INTELLIGENCE — LAM Forge (The Brain)
+  # 5. INTELLIGENCE — LAM Forge
   # ===========================================================================
   lam-inference:
     build:
@@ -122,12 +126,13 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - MONGO_URL=mongodb://mongo:27017
-      - MODEL_PATH=/models/lam/latest.pt
+      - LLM_GATEWAY_URL=http://llm-gateway:8200
     volumes:
       - lam-models:/models/lam
     depends_on:
       - redis
       - mongo
+      - llm-gateway
     networks:
       - ads-net
 
@@ -140,12 +145,6 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - MONGO_URL=mongodb://mongo:27017
-      - LOA_SHADOW_SAMPLES=100
-      - LOA_ADVISORY_ACCURACY=0.70
-      - LOA_COPILOT_SAMPLES=500
-      - LOA_COPILOT_ACCURACY=0.80
-      - LOA_GOVERNOR_SAMPLES=1000
-      - LOA_GOVERNOR_ACCURACY=0.85
     depends_on:
       - redis
       - mongo
@@ -168,7 +167,7 @@ services:
       - ads-net
 
   # ===========================================================================
-  # 5. MONITORING — Prometheus & Grafana
+  # 6. MONITORING
   # ===========================================================================
   prometheus:
     image: prom/prometheus:latest
@@ -192,7 +191,6 @@ services:
       - ./services/lam-forge/k8s/grafana-control-plane.json:/var/lib/grafana/dashboards/control-plane.json
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
-      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/control-plane.json
     ports:
       - "3000:3000"
     depends_on:
@@ -200,9 +198,6 @@ services:
     networks:
       - ads-net
 
-# =============================================================================
-# VOLUMES
-# =============================================================================
 volumes:
   redis-data:
   mongo-data:
@@ -210,9 +205,6 @@ volumes:
   prometheus-data:
   grafana-data:
 
-# =============================================================================
-# NETWORKS
-# =============================================================================
 networks:
   ads-net:
     driver: bridge
