@@ -18,6 +18,11 @@ The heads learn what's vertical-specific.
 import torch
 import torch.nn as nn
 
+# Input dimension from featurize()
+INPUT_DIM = 11
+HIDDEN_DIM = 256
+DIRECTION_DIM = 4
+
 
 class Encoder(nn.Module):
     """
@@ -31,12 +36,12 @@ class Encoder(nn.Module):
     def __init__(self):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(128, 256),
+            nn.Linear(INPUT_DIM, HIDDEN_DIM),
             nn.ReLU(),
-            nn.LayerNorm(256),
-            nn.Linear(256, 256),
+            nn.LayerNorm(HIDDEN_DIM),
+            nn.Linear(HIDDEN_DIM, HIDDEN_DIM),
             nn.ReLU(),
-            nn.LayerNorm(256)
+            nn.LayerNorm(HIDDEN_DIM)
         )
     
     def forward(self, x):
@@ -54,8 +59,8 @@ class PolicyHead(nn.Module):
     
     def __init__(self):
         super().__init__()
-        self.direction = nn.Linear(256, 4)
-        self.value = nn.Linear(256, 1)
+        self.direction = nn.Linear(HIDDEN_DIM, DIRECTION_DIM)
+        self.value = nn.Linear(HIDDEN_DIM, 1)
     
     def forward(self, h):
         return torch.tanh(self.direction(h)), self.value(h)
@@ -84,7 +89,7 @@ class LAM(nn.Module):
         Forward pass through vertical-specific head.
         
         Args:
-            x: Input features [batch, 128]
+            x: Input features [batch, 11] from featurize()
             vertical: Vertical name (ecommerce, b2b, saas)
         
         Returns:

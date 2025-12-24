@@ -4,45 +4,48 @@ FEATURE EXTRACTION
 ==================
 
 Converts raw samples into model-ready tensors.
+
+Feature groups:
+- Context: Time, traffic entropy
+- Behavior: Score, bounce, scroll, dwell
+- Lineage: Ghost weight, parent lifetime
+- Enforcement: DOM complexity, semantic drift, visual shift
 """
 
 import torch
-import numpy as np
 
 
 def featurize(sample):
     """
     Convert sample to feature tensor.
     
-    Extracts:
-    - Base state embedding
-    - Mutation vector
-    - Context signals
-    
     Returns:
-        torch.Tensor of shape [128]
+        torch.Tensor of shape [11] (expandable to 128 via model projection)
     """
-    # Get base state (page embedding)
-    base_state = sample.get("base_state", [0] * 64)
+    ctx = sample["context_features"]
+    beh = sample["behavior_before"]
+    lin = sample["lineage"]
+    enf = sample["enforcement_distance"]
     
-    # Get mutation vector
-    mutation = sample.get("mutation_vector", [0] * 32)
-    
-    # Get context signals
-    context = sample.get("context", {})
-    context_features = [
-        context.get("time_of_day", 0.5),
-        context.get("day_of_week", 0.5),
-        context.get("device_mobile", 0.0),
-        context.get("traffic_source_paid", 0.0),
-        # Pad to 32
+    features = [
+        # Context features
+        ctx.get("hour_of_day", 0) / 24.0,
+        ctx.get("traffic_entropy", 0.0),
+        
+        # Behavioral features (pre-mutation)
+        beh.get("mean_score", 0.0),
+        beh.get("bounce_rate", 0.0),
+        beh.get("avg_scroll", 0.0),
+        beh.get("avg_dwell_time", 0.0) / 60.0,
+        
+        # Lineage features
+        lin.get("ghost_weight", 0.0),
+        lin.get("parent_lifetime_events", 0) / 1000.0,
+        
+        # Enforcement features
+        enf.get("dom_complexity", 0.0),
+        enf.get("semantic_drift", 0.0),
+        enf.get("visual_shift", 0.0),
     ]
-    context_features = context_features + [0] * (32 - len(context_features))
-    
-    # Concatenate all features
-    features = base_state[:64] + mutation[:32] + context_features[:32]
-    
-    # Ensure 128 dimensions
-    features = features[:128] + [0] * max(0, 128 - len(features))
     
     return torch.tensor(features, dtype=torch.float32)
