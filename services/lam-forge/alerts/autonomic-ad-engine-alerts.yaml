@@ -1,0 +1,200 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: autonomic-ad-engine-alerts
+  namespace: ad-engine-prod
+  labels:
+    release: prometheus-stack
+spec:
+  groups:
+
+  # --------------------------------------------------
+  # 1. GLOBAL DRIFT & WORLD CHANGE
+  # --------------------------------------------------
+  - name: global-drift
+    rules:
+    - alert: GlobalNeuralDriftDetected
+      expr: global_neural_drift_magnitude > 0.30
+      for: 2m
+      labels:
+        severity: critical
+        subsystem: neural
+      annotations:
+        summary: "Global neural drift detected"
+        description: >
+          Global behavior patterns have shifted significantly.
+          FORCE_REEXPLORE should be triggered across active sites.
+
+    - alert: ElevatedNeuralDrift
+      expr: global_neural_drift_magnitude > 0.15
+      for: 5m
+      labels:
+        severity: warning
+        subsystem: neural
+      annotations:
+        summary: "Elevated neural drift"
+        description: >
+          Behavioral trends are shifting.
+          Monitor Surprise Heatmap closely.
+
+  # --------------------------------------------------
+  # 2. SURPRISE / HALLUCINATION DETECTION
+  # --------------------------------------------------
+  - name: surprise-detection
+    rules:
+    - alert: LAMHallucinationSpike
+      expr: |
+        histogram_quantile(
+          0.95,
+          sum(rate(lam_surprise_delta_bucket[5m])) by (le)
+        ) > 0.60
+      for: 3m
+      labels:
+        severity: critical
+        subsystem: lam
+      annotations:
+        summary: "LAM hallucination spike detected"
+        description: >
+          The LAM's predicted reward diverges sharply from reality.
+          Consider demotion or shadow-only mode.
+
+    - alert: ElevatedLAMSurprise
+      expr: |
+        histogram_quantile(
+          0.95,
+          sum(rate(lam_surprise_delta_bucket[5m])) by (le)
+        ) > 0.30
+      for: 5m
+      labels:
+        severity: warning
+        subsystem: lam
+      annotations:
+        summary: "Elevated LAM surprise"
+        description: >
+          Prediction error is increasing.
+          Learning opportunity or early drift signal.
+
+  # --------------------------------------------------
+  # 3. GOVERNOR SAFETY & STATE FLAPPING
+  # --------------------------------------------------
+  - name: governor-safety
+    rules:
+    - alert: GovernorStateFlapping
+      expr: increase(governor_state_transition_total[30m]) > 2
+      for: 1m
+      labels:
+        severity: critical
+        subsystem: governor
+      annotations:
+        summary: "Governor state flapping"
+        description: >
+          Rapid promotions/demotions detected.
+          Indicates unstable confidence or unsafe thresholds.
+
+    - alert: UnexpectedLAMPromotion
+      expr: |
+        increase(governor_state_transition_total{to="LAM_PRIMARY"}[10m]) > 0
+        and
+        histogram_quantile(
+          0.95,
+          sum(rate(lam_surprise_delta_bucket[5m])) by (le)
+        ) > 0.40
+      for: 1m
+      labels:
+        severity: critical
+        subsystem: governor
+      annotations:
+        summary: "Unsafe LAM promotion detected"
+        description: >
+          LAM was promoted while surprise levels were high.
+          Immediate investigation recommended.
+
+  # --------------------------------------------------
+  # 4. DIFF ENFORCEMENT / EXPLORATION DRIFT
+  # --------------------------------------------------
+  - name: diff-enforcement
+    rules:
+    - alert: HighDiffRejectionRate
+      expr: rate(container_diff_reject_total[5m]) > 0.2
+      for: 3m
+      labels:
+        severity: warning
+        subsystem: enforcement
+      annotations:
+        summary: "High container diff rejection rate"
+        description: >
+          LLMs are proposing variants that violate brand or structural constraints.
+          Review enforcement thresholds or LLM prompts.
+
+    - alert: StructuralIntegrityViolation
+      expr: rate(container_diff_reject_total{reason="structural"}[5m]) > 0.1
+      for: 2m
+      labels:
+        severity: critical
+        subsystem: enforcement
+      annotations:
+        summary: "Structural integrity violations detected"
+        description: >
+          Regenerated containers are breaking core page structure.
+          Exploration drift may be uncontrolled.
+
+  # --------------------------------------------------
+  # 5. ROUTER & CIRCUIT BREAKER HEALTH
+  # --------------------------------------------------
+  - name: router-health
+    rules:
+    - alert: RouterLatencyCritical
+      expr: |
+        histogram_quantile(
+          0.95,
+          sum(rate(router_decision_latency_seconds_bucket[5m])) by (le)
+        ) > 0.30
+      for: 2m
+      labels:
+        severity: critical
+        subsystem: router
+      annotations:
+        summary: "Router decision latency critical"
+        description: >
+          p95 routing latency exceeded 300ms.
+          Circuit breaker may engage.
+
+    - alert: RouterLatencyWarning
+      expr: |
+        histogram_quantile(
+          0.95,
+          sum(rate(router_decision_latency_seconds_bucket[5m])) by (le)
+        ) > 0.15
+      for: 5m
+      labels:
+        severity: warning
+        subsystem: router
+      annotations:
+        summary: "Router latency elevated"
+        description: >
+          Routing decisions are slowing.
+          Monitor load and downstream dependencies.
+
+  # --------------------------------------------------
+  # 6. LAM vs LLM DISAGREEMENT (STUDENT > TEACHER)
+  # --------------------------------------------------
+  - name: lam-llm-disagreement
+    rules:
+    - alert: LAMLLMDisagreementSpike
+      expr: |
+        avg_over_time(
+          abs(
+            lam_mutation_score_delta{source="lam"}
+            -
+            lam_mutation_score_delta{source="llm"}
+          )[10m]
+        ) > 0.40
+      for: 5m
+      labels:
+        severity: warning
+        subsystem: learning
+      annotations:
+        summary: "LAM–LLM disagreement spike"
+        description: >
+          The LAM is diverging strongly from LLM guidance.
+          This may indicate maturation or a modeling error.
