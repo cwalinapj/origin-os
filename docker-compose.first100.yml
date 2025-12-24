@@ -1,0 +1,218 @@
+version: '3.8'
+
+# =============================================================================
+# FIRST-100 REGIME — Dynamic Container Mesh
+# =============================================================================
+# Deploys the complete A/B testing infrastructure:
+# - Router (Thompson Sampling gateway)
+# - Page Variants (A=Baseline, B=Challenger)
+# - Persistence (Redis, MongoDB)
+# - Intelligence (LAM Forge)
+
+services:
+  # ===========================================================================
+  # 1. ROUTER — Traffic Gateway (Thompson Sampling)
+  # ===========================================================================
+  router:
+    build:
+      context: ./services/router
+      dockerfile: Dockerfile
+    container_name: router-api
+    ports:
+      - "8024:8024"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - MONGO_URL=mongodb://mongo:27017
+      - DIVERGENCE_THRESHOLD=0.07
+      - MIN_EVENTS=50
+      - GLOBAL_DRIFT_THRESHOLD=0.15
+      - LAM_INFERENCE_URL=http://lam-inference:8060
+      - GOVERNOR_URL=http://governor:8120
+    depends_on:
+      - redis
+      - mongo
+    networks:
+      - ads-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8024/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ===========================================================================
+  # 2. FRONT PAGES — Variant A (Baseline) & Variant B (Challenger)
+  # ===========================================================================
+  page-a:
+    build:
+      context: ./services/landing-page
+      dockerfile: Dockerfile
+    container_name: page-variant-a
+    environment:
+      - PAGE_ID=site_001:baseline:v1
+      - VARIANT_TYPE=control
+      - GTAG_ID=${GTAG_ID_A:-GT-XXXXXXX}
+      - ROUTER_URL=http://router:8024
+      - NEURAL_COLLECTOR_ENABLED=true
+    depends_on:
+      - router
+    networks:
+      - ads-net
+    labels:
+      - "role=landing-page-container"
+
+  page-b:
+    build:
+      context: ./services/landing-page
+      dockerfile: Dockerfile
+    container_name: page-variant-b
+    environment:
+      - PAGE_ID=site_001:challenger:v1
+      - VARIANT_TYPE=challenger
+      - GTAG_ID=${GTAG_ID_B:-GT-YYYYYYY}
+      - ROUTER_URL=http://router:8024
+      - NEURAL_COLLECTOR_ENABLED=true
+      - MUTATION_SOURCE=llm
+      - MUTATION_MODEL=claude-sonnet
+    depends_on:
+      - router
+    networks:
+      - ads-net
+    labels:
+      - "role=landing-page-container"
+
+  # ===========================================================================
+  # 3. PERSISTENCE — Redis (Bandit Memory) & MongoDB (Session Store)
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: redis-state
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - ads-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  mongo:
+    image: mongo:7.0
+    container_name: mongo-dna
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - ads-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ===========================================================================
+  # 4. INTELLIGENCE — LAM Forge (The Brain)
+  # ===========================================================================
+  lam-inference:
+    build:
+      context: ./services/lam-forge
+      dockerfile: Dockerfile
+    container_name: lam-inference
+    command: ["python", "-m", "uvicorn", "inference_spawner:app", "--host", "0.0.0.0", "--port", "8060"]
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - MONGO_URL=mongodb://mongo:27017
+      - MODEL_PATH=/models/lam/latest.pt
+    volumes:
+      - lam-models:/models/lam
+    depends_on:
+      - redis
+      - mongo
+    networks:
+      - ads-net
+
+  governor:
+    build:
+      context: ./services/lam-forge
+      dockerfile: Dockerfile
+    container_name: governor
+    command: ["python", "-m", "uvicorn", "lam.governor.engine:app", "--host", "0.0.0.0", "--port", "8120"]
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - MONGO_URL=mongodb://mongo:27017
+      - LOA_SHADOW_SAMPLES=100
+      - LOA_ADVISORY_ACCURACY=0.70
+      - LOA_COPILOT_SAMPLES=500
+      - LOA_COPILOT_ACCURACY=0.80
+      - LOA_GOVERNOR_SAMPLES=1000
+      - LOA_GOVERNOR_ACCURACY=0.85
+    depends_on:
+      - redis
+      - mongo
+    networks:
+      - ads-net
+
+  drift-monitor:
+    build:
+      context: ./services/lam-forge
+      dockerfile: Dockerfile
+    container_name: drift-monitor
+    command: ["python", "-m", "uvicorn", "lam.monitor.drift:app", "--host", "0.0.0.0", "--port", "8130"]
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - EMA_ALPHA=0.2
+      - DRIFT_THRESHOLD=0.15
+    depends_on:
+      - redis
+    networks:
+      - ads-net
+
+  # ===========================================================================
+  # 5. MONITORING — Prometheus & Grafana
+  # ===========================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+    networks:
+      - ads-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./services/lam-forge/k8s/grafana-control-plane.json:/var/lib/grafana/dashboards/control-plane.json
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/control-plane.json
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - ads-net
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  redis-data:
+  mongo-data:
+  lam-models:
+  prometheus-data:
+  grafana-data:
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  ads-net:
+    driver: bridge
