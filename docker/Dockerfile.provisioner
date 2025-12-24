@@ -1,0 +1,13 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    boto3 \
+    httpx
+
+COPY scripts/provision_llm_agents.py /app/provision.py
+
+VOLUME /output
+
+CMD ["python", "provision.py"]
