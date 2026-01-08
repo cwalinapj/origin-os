@@ -1,0 +1,84 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-01-08T00:00:00Z",
+  "owner": "paul",
+  "memories": [
+    {
+      "id": "pref-001",
+      "type": "Preference",
+      "content": "Use JSON format for structured data over YAML when parsing speed matters",
+      "authority": "low",
+      "tags": ["development", "data-formats"],
+      "provenance": {
+        "source": "human",
+        "timestamp": "2026-01-08T00:00:00Z",
+        "interaction_id": "unified-memory-init"
+      },
+      "expires": null,
+      "promoted_from": null
+    },
+    {
+      "id": "dec-001",
+      "type": "Decision",
+      "content": "Unified memory is stored in origin-os-git/memory/ and syncs to GitHub for persistence and agent access",
+      "rationale": "Enables both Claude (via Filesystem MCP) and Origin OS agents to share the same memory substrate",
+      "authority": "high",
+      "tags": ["architecture", "memory"],
+      "provenance": {
+        "source": "human",
+        "timestamp": "2026-01-08T00:00:00Z",
+        "interaction_id": "unified-memory-init"
+      },
+      "expires": null,
+      "promoted_from": null
+    },
+    {
+      "id": "proc-001",
+      "type": "Procedure",
+      "content": "Claude reads memory/store.json at conversation start. Writes new memories during conversation. Commits to git at session end if changes made.",
+      "authority": "high",
+      "tags": ["workflow", "memory"],
+      "provenance": {
+        "source": "human",
+        "timestamp": "2026-01-08T00:00:00Z",
+        "interaction_id": "unified-memory-init"
+      },
+      "expires": null,
+      "promoted_from": null
+    },
+    {
+      "id": "const-001",
+      "type": "Constraint",
+      "content": "Never store secrets, API keys, or credentials in memory store - use Vault service on port 8004 instead",
+      "authority": "absolute",
+      "tags": ["security"],
+      "provenance": {
+        "source": "human",
+        "timestamp": "2026-01-08T00:00:00Z",
+        "interaction_id": "unified-memory-init"
+      },
+      "expires": null,
+      "promoted_from": null
+    }
+  ],
+  "indexes": {
+    "by_type": {
+      "Preference": ["pref-001"],
+      "Decision": ["dec-001"],
+      "Procedure": ["proc-001"],
+      "Constraint": ["const-001"],
+      "Goal": [],
+      "Lesson": [],
+      "Observation": [],
+      "Hypothesis": []
+    },
+    "by_tag": {
+      "development": ["pref-001"],
+      "data-formats": ["pref-001"],
+      "architecture": ["dec-001"],
+      "memory": ["dec-001", "proc-001"],
+      "workflow": ["proc-001"],
+      "security": ["const-001"]
+    }
+  }
+}

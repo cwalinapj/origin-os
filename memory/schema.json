@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UnifiedMemoryStore",
+  "description": "Shared memory substrate for Claude and Origin OS agents",
+  "type": "object",
+  "required": ["version", "last_updated", "owner", "memories"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$"
+    },
+    "last_updated": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "owner": {
+      "type": "string"
+    },
+    "memories": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Memory"
+      }
+    },
+    "indexes": {
+      "type": "object",
+      "properties": {
+        "by_type": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "by_tag": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "Memory": {
+      "type": "object",
+      "required": ["id", "type", "content", "authority", "provenance"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z]+-\\d{3,}$"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["Preference", "Decision", "Constraint", "Goal", "Procedure", "Lesson", "Observation", "Hypothesis"]
+        },
+        "content": {
+          "type": "string"
+        },
+        "rationale": {
+          "type": "string",
+          "description": "Required for Decision and Constraint types"
+        },
+        "authority": {
+          "type": "string",
+          "enum": ["very_low", "low", "medium", "high", "absolute"]
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "provenance": {
+          "$ref": "#/definitions/Provenance"
+        },
+        "expires": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "promoted_from": {
+          "type": ["string", "null"],
+          "description": "ID of memory this was promoted from"
+        }
+      }
+    },
+    "Provenance": {
+      "type": "object",
+      "required": ["source", "timestamp"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["human", "claude", "agent", "system"]
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "llm_provider": {
+          "type": "string"
+        },
+        "llm_model": {
+          "type": "string"
+        },
+        "interaction_id": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string",
+          "description": "For Origin OS agents, the container/agent identifier"
+        }
+      }
+    }
+  }
+}
