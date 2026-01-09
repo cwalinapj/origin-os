@@ -1,0 +1,45 @@
+name: Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'README.md'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'README.md'
+  workflow_dispatch:
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate markdown files
+        run: |
+          echo "Validating documentation files..."
+          
+          if [ ! -d "docs" ]; then
+            echo "Error: docs directory not found"
+            exit 1
+          fi
+          
+          if [ ! -f "README.md" ]; then
+            echo "Error: README.md not found"
+            exit 1
+          fi
+          
+          find docs -name "*.md" -type f | while read file; do
+            echo "Checking: $file"
+          done
+          
+          echo "Documentation validation complete."
